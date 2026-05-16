@@ -1,0 +1,130 @@
+import { useState, type FormEvent } from 'react';
+import {
+  BadgeCheck,
+  Link,
+  LogIn,
+  LogOut,
+  Play,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Field, FieldError, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { extractFileId } from '@/core/drive';
+import type { UserInfo } from '@/core/auth';
+
+interface HomeViewProps {
+  user: UserInfo | null;
+  isAuthenticated: boolean;
+  onLogin: (pendingFileId?: string) => void;
+  onLogout: () => void;
+  onPlay: (fileId: string) => void;
+}
+
+export default function HomeView({ user, isAuthenticated, onLogin, onLogout, onPlay }: HomeViewProps) {
+  const [inputValue, setInputValue] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    const fileId = extractFileId(inputValue);
+    if (!fileId) {
+      setError('Link hoặc ID không hợp lệ. Vui lòng kiểm tra lại.');
+      return;
+    }
+
+    onPlay(fileId);
+  };
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-50 border-b bg-background/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <img src="/play-icon.png" alt="Logo" className="size-10" />
+            <span className="text-sm font-semibold sm:text-base">Nimbus Player</span>
+          </div>
+
+          {isAuthenticated && user ? (
+            <div className="flex items-center gap-2 rounded-lg border bg-card/70 p-1">
+              <img
+                src={user.picture}
+                alt={user.name}
+                className="size-8 rounded-full border object-cover"
+                referrerPolicy="no-referrer"
+              />
+              <span className="hidden max-w-44 truncate px-1 text-sm font-medium text-muted-foreground sm:block">
+                {user.name}
+              </span>
+              <Button variant="ghost" size="icon" onClick={onLogout} title="Đăng xuất">
+                <LogOut />
+              </Button>
+            </div>
+          ) : (
+            <Button onClick={() => onLogin()} size="lg" className="h-10">
+              <LogIn />
+              Đăng nhập Google
+            </Button>
+          )}
+        </div>
+      </header>
+
+      <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl items-center gap-4 px-4 py-6 sm:px-6 lg:py-12">
+        <section className="rounded-lg border bg-card p-5 shadow-sm sm:p-8 lg:p-10">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
+            <BadgeCheck className="size-3.5 text-primary" />
+            Google Drive Video Player
+          </div>
+
+          <h1 className="max-w-3xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl lg:text-6xl">
+            Phát video Drive trong một trình phát gọn, nhanh và riêng tư.
+          </h1>
+
+          <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
+            Dán link Google Drive hoặc File ID để mở video với giao diện player tối giản, hỗ trợ PiP,
+            tua nhanh, tốc độ phát và ghi nhớ vị trí xem.
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-8 max-w-3xl">
+            <Field>
+              <FieldLabel htmlFor="drive-input">Google Drive URL hoặc File ID</FieldLabel>
+              <div className="relative">
+                <Link className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="drive-input"
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => {
+                    setInputValue(e.target.value);
+                    setError('');
+                  }}
+                  placeholder="https://drive.google.com/file/d/..."
+                  className="h-12 rounded-lg bg-background pl-10 pr-24 text-sm"
+                  autoFocus
+                  aria-invalid={!!error}
+                />
+                <Button
+                  type="submit"
+                  disabled={!inputValue.trim()}
+                  className="absolute right-1 top-1 h-10 px-3"
+                >
+                  <Play className="fill-current" />
+                  Phát
+                </Button>
+              </div>
+              <FieldError>{error}</FieldError>
+            </Field>
+          </form>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Hỗ trợ</span>
+            <span className="rounded-md border bg-muted px-2 py-1 font-mono">drive.google.com/file/d/...</span>
+            <span className="rounded-md border bg-muted px-2 py-1 font-mono">drive.google.com/open?id=...</span>
+            <span className="rounded-md border bg-muted px-2 py-1 font-mono">File ID</span>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
