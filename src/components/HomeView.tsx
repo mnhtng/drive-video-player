@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import {
   BadgeCheck,
   Link,
@@ -9,21 +9,36 @@ import {
 import { Button } from '@/components/ui/button';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { extractFileId } from '@/core/drive';
+import { extractFileId, prefetchDriveVideo } from '@/core/drive';
 import type { UserInfo } from '@/core/auth';
 import { APP_NAME } from '@/core/constants';
 
 interface HomeViewProps {
   user: UserInfo | null;
+  token: string | null;
   isAuthenticated: boolean;
   onLogin: (pendingFileId?: string) => void;
   onLogout: () => void;
   onPlay: (fileId: string) => void;
 }
 
-export default function HomeView({ user, isAuthenticated, onLogin, onLogout, onPlay }: HomeViewProps) {
+export default function HomeView({ user, token, isAuthenticated, onLogin, onLogout, onPlay }: HomeViewProps) {
   const [inputValue, setInputValue] = useState('');
   const [error, setError] = useState('');
+
+  // Prefetch video metadata
+  useEffect(() => {
+    if (!isAuthenticated || !token) return;
+
+    const fileId = extractFileId(inputValue);
+    if (!fileId) return;
+
+    const timer = window.setTimeout(() => {
+      void prefetchDriveVideo(fileId, token);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [inputValue, isAuthenticated, token]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -47,17 +62,23 @@ export default function HomeView({ user, isAuthenticated, onLogin, onLogout, onP
             <span className="text-sm font-semibold sm:text-base">{APP_NAME}</span>
           </div>
 
-          {isAuthenticated && user ? (
+          {isAuthenticated ? (
             <div className="flex items-center gap-2 rounded-lg border bg-card/70 p-1">
-              <img
-                src={user.picture}
-                alt={user.name}
-                className="size-8 rounded-full border object-cover"
-                referrerPolicy="no-referrer"
-              />
-              <span className="hidden max-w-44 truncate px-1 text-sm font-medium text-muted-foreground sm:block">
-                {user.name}
-              </span>
+              {user ? (
+                <>
+                  <img
+                    src={user.picture}
+                    alt={user.name}
+                    className="size-8 rounded-full border object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                  <span className="hidden max-w-44 truncate px-1 text-sm font-medium text-muted-foreground sm:block">
+                    {user.name}
+                  </span>
+                </>
+              ) : (
+                <span className="px-2 text-sm font-medium text-muted-foreground">Đã đăng nhập</span>
+              )}
               <Button variant="ghost" size="icon" onClick={onLogout} title="Đăng xuất">
                 <LogOut />
               </Button>

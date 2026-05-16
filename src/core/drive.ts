@@ -3,6 +3,9 @@
 // File metadata, listing, and URL utilities
 // ============================================================
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
+const DRIVE_CACHE_TTL_MS = 2 * 60 * 1000;
+const SUBTITLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
+const STREAM_PREFETCH_RANGE_HEADER = 'bytes=0-';
 
 export interface DriveFile {
   id: string;
@@ -26,6 +29,63 @@ export interface DriveFileList {
 }
 
 const DEFAULT_FILE_FIELDS = 'id,name,mimeType,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
+
+interface TimedCacheEntry<T> {
+  expiresAt: number;
+  promise: Promise<T>;
+}
+
+const metadataCache = new Map<string, TimedCacheEntry<DriveFile | null>>();
+const folderVideosCache = new Map<string, TimedCacheEntry<DriveFileList | null>>();
+const folderSubtitlesCache = new Map<string, TimedCacheEntry<DriveFileList | null>>();
+const subtitleTextCache = new Map<string, TimedCacheEntry<string | null>>();
+const folderInfoCache = new Map<string, TimedCacheEntry<{ id: string; name: string } | null>>();
+const streamPrefetchPromises = new Map<string, Promise<void>>();
+
+function buildTokenCacheKey(token: string, key: string): string {
+  return `${token}:${key}`;
+}
+
+function getCachedPromise<T>(
+  cache: Map<string, TimedCacheEntry<T>>,
+  key: string,
+  ttlMs: number,
+  factory: () => Promise<T>
+): Promise<T> {
+  const now = Date.now();
+  const existing = cache.get(key);
+  if (existing && existing.expiresAt > now) {
+    return existing.promise;
+  }
+
+  const promise = factory()
+    .then((value) => {
+      if (value === null) {
+        cache.delete(key);
+      }
+      return value;
+    })
+    .catch((error) => {
+      cache.delete(key);
+      throw error;
+    });
+
+  cache.set(key, {
+    expiresAt: now + ttlMs,
+    promise,
+  });
+
+  return promise;
+}
+
+export function clearDriveCaches(): void {
+  metadataCache.clear();
+  folderVideosCache.clear();
+  folderSubtitlesCache.clear();
+  subtitleTextCache.clear();
+  folderInfoCache.clear();
+  streamPrefetchPromises.clear();
+}
 
 /**
  * Extract Google Drive file ID from various URL formats:
@@ -118,25 +178,28 @@ export async function getFileMetadata(
   token: string
 ): Promise<DriveFile | null> {
   const fields = DEFAULT_FILE_FIELDS;
+  const cacheKey = buildTokenCacheKey(token, `metadata:${fileId}`);
 
-  try {
-    const res = await fetch(
-      `${DRIVE_API_BASE}/files/${fileId}?fields=${fields}&supportsAllDrives=true`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
+  return getCachedPromise(metadataCache, cacheKey, DRIVE_CACHE_TTL_MS, async () => {
+    try {
+      const res = await fetch(
+        `${DRIVE_API_BASE}/files/${fileId}?fields=${fields}&supportsAllDrives=true`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (!res.ok) {
+        console.error('>>> [Drive] Failed to get file metadata:', res.status);
+        return null;
       }
-    );
 
-    if (!res.ok) {
-      console.error('>>> [Drive] Failed to get file metadata:', res.status);
+      return await res.json();
+    } catch (err) {
+      console.error('>>> [Drive] Error fetching metadata:', err);
       return null;
     }
-
-    return await res.json();
-  } catch (err) {
-    console.error('>>> [Drive] Error fetching metadata:', err);
-    return null;
-  }
+  });
 }
 
 export async function listFolderVideos(
@@ -148,7 +211,10 @@ export async function listFolderVideos(
   const fields = 'id,name,mimeType,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
 
   if (!pageToken) {
-    return listFilesByQuery(query, token, fields);
+    const cacheKey = buildTokenCacheKey(token, `folderVideos:${folderId}`);
+    return getCachedPromise(folderVideosCache, cacheKey, DRIVE_CACHE_TTL_MS, () => {
+      return listFilesByQuery(query, token, fields);
+    });
   }
 
   try {
@@ -183,42 +249,88 @@ export async function listFolderSubtitleFiles(
     "(name contains '.vtt' or name contains '.VTT' or name contains '.srt' or name contains '.SRT')",
   ].join(' and ');
 
-  return listFilesByQuery(query, token, 'id,name,mimeType,size,modifiedTime,parents');
+  const cacheKey = buildTokenCacheKey(token, `folderSubtitles:${folderId}`);
+  return getCachedPromise(folderSubtitlesCache, cacheKey, DRIVE_CACHE_TTL_MS, () => {
+    return listFilesByQuery(query, token, 'id,name,mimeType,size,modifiedTime,parents');
+  });
 }
 
 export async function fetchDriveFileText(
   fileId: string,
   token: string
 ): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `${DRIVE_API_BASE}/files/${fileId}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
+  const cacheKey = buildTokenCacheKey(token, `text:${fileId}`);
 
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  }
+  return getCachedPromise(subtitleTextCache, cacheKey, SUBTITLE_TEXT_CACHE_TTL_MS, async () => {
+    try {
+      const res = await fetch(
+        `${DRIVE_API_BASE}/files/${fileId}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (!res.ok) return null;
+      return await res.text();
+    } catch {
+      return null;
+    }
+  });
 }
 
 export async function getFolderInfo(
   folderId: string,
   token: string
 ): Promise<{ id: string; name: string } | null> {
-  try {
-    const res = await fetch(
-      `${DRIVE_API_BASE}/files/${folderId}?fields=id,name&supportsAllDrives=true`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
+  const cacheKey = buildTokenCacheKey(token, `folderInfo:${folderId}`);
+
+  return getCachedPromise(folderInfoCache, cacheKey, DRIVE_CACHE_TTL_MS, async () => {
+    try {
+      const res = await fetch(
+        `${DRIVE_API_BASE}/files/${folderId}?fields=id,name&supportsAllDrives=true`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  });
+}
+
+export async function prefetchDriveVideo(fileOrId: DriveFile | string, token: string): Promise<void> {
+  const metadata = typeof fileOrId === 'string'
+    ? await getFileMetadata(fileOrId, token)
+    : fileOrId;
+
+  if (!metadata?.id || !metadata.size) return;
+
+  const cacheKey = buildTokenCacheKey(token, `stream:${metadata.id}:${metadata.size}`);
+  const existing = streamPrefetchPromises.get(cacheKey);
+  if (existing) return existing;
+
+  let succeeded = false;
+  const promise = (async () => {
+    const res = await fetch(buildProxyUrl(metadata.id, metadata.size), {
+      headers: { Range: STREAM_PREFETCH_RANGE_HEADER },
+    });
+
+    if (!res.ok && res.status !== 206) return;
+
+    await res.arrayBuffer();
+    succeeded = true;
+  })()
+    .catch(() => {
+      // Prefetch is opportunistic; playback should own user-visible errors.
+    })
+    .finally(() => {
+      if (!succeeded) {
+        streamPrefetchPromises.delete(cacheKey);
       }
-    );
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+    });
+
+  streamPrefetchPromises.set(cacheKey, promise);
+  return promise;
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Loader2, Play, LayoutList } from 'lucide-react';
-import { listFolderVideos, type DriveFile } from '@/core/drive';
+import { listFolderVideos, prefetchDriveVideo, type DriveFile } from '@/core/drive';
 import { formatDuration } from '@/utils/string';
 
 interface PlaylistPanelProps {
@@ -36,6 +36,11 @@ export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: Play
       cancelled = true;
     };
   }, [folderId, token]);
+
+  const prefetchFile = (file: DriveFile) => {
+    if (file.id === currentFileId) return;
+    void prefetchDriveVideo(file, token);
+  };
 
   if (isLoading) {
     return (
@@ -77,6 +82,8 @@ export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: Play
             <button
               key={file.id}
               onClick={() => !isCurrent && onSelect(file.id)}
+              onPointerEnter={() => prefetchFile(file)}
+              onFocus={() => prefetchFile(file)}
               className={[
                 'flex w-full items-start gap-3 rounded-md p-2 text-left transition-colors hover:bg-muted/50',
                 isCurrent ? 'bg-muted/80 ring-1 ring-primary/50' : '',

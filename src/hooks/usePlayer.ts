@@ -244,6 +244,16 @@ function buildPlyrQualityOptions(sources: BuiltVideoSource[]): number[] {
     .sort((a, b) => b - a);
 }
 
+function toPlayerQualitySources(sources: BuiltVideoSource[]): PlayerQualitySource[] {
+  return sources.map((source) => ({
+    fileId: source.file.id,
+    name: source.file.name,
+    label: source.quality ? `${source.quality}p` : 'Gốc',
+    quality: source.quality,
+    isCurrentFile: source.isCurrentFile,
+  }));
+}
+
 function buildVideoSources(metadata: DriveFile, folderVideos: DriveFile[]): BuiltVideoSource[] {
   const currentQuality = inferQuality(metadata);
   const currentSource: BuiltVideoSource = {
@@ -387,6 +397,26 @@ async function buildSubtitleTracks(
 function setPlayerSource(player: Plyr, source: PlayerSourceInfo): HTMLVideoElement | null {
   (player as unknown as { source: PlayerSourceInfo }).source = source;
   return (player as PlyrWithMedia).media ?? null;
+}
+
+function setPlayerQualityOptions(player: Plyr, sources: BuiltVideoSource[]) {
+  ((player as unknown as { config: Plyr.Options }).config.quality ??= {
+    default: sources[0]?.quality ?? 1080,
+    options: QUALITY_OPTIONS,
+  }).options = buildPlyrQualityOptions(sources);
+}
+
+function appendSubtitleTracks(video: HTMLVideoElement, tracks: BuiltSubtitleTrack[]): HTMLTrackElement[] {
+  return tracks.map((track) => {
+    const trackElement = document.createElement('track');
+    trackElement.kind = track.kind;
+    trackElement.label = track.label;
+    trackElement.srclang = track.srclang;
+    trackElement.src = track.src;
+    trackElement.default = Boolean(track.default);
+    video.appendChild(trackElement);
+    return trackElement;
+  });
 }
 
 function isPlyrReady(player: Plyr): boolean {
@@ -549,6 +579,7 @@ export function usePlayer({
 
     let cancelled = false;
     let cleanupVideoListeners: (() => void) | undefined;
+    let cleanupSubtitleTrackElements: (() => void) | undefined;
     let loadTimeout: ReturnType<typeof setTimeout> | undefined;
 
     const clearLoadTimeout = () => {
@@ -567,6 +598,8 @@ export function usePlayer({
       revokeSubtitleBlobUrls();
 
       try {
+        const playerReadyPromise = waitForPlayerReady(activePlayer);
+
         // Fetch metadata
         const metadata = await getFileMetadata(fileId!, token!);
         if (cancelled) return;
@@ -582,45 +615,17 @@ export function usePlayer({
         // Update page title
         document.title = `${metadata.name} — ${APP_NAME}`;
 
-        const parentFolderId = metadata.parents?.[0];
-        const [folderVideosResult, subtitleFilesResult] = await Promise.all([
-          parentFolderId ? listFolderVideos(parentFolderId, token!) : Promise.resolve(null),
-          parentFolderId ? listFolderSubtitleFiles(parentFolderId, token!) : Promise.resolve(null),
-        ]);
-        if (cancelled) return;
-
-        const videoSources = buildVideoSources(metadata, folderVideosResult?.files ?? []);
-        const subtitleTrackResult = await buildSubtitleTracks(
-          metadata,
-          subtitleFilesResult?.files ?? [],
-          token!
-        );
-        if (cancelled) {
-          subtitleTrackResult.blobUrls.forEach((url) => URL.revokeObjectURL(url));
-          return;
-        }
-
-        subtitleBlobUrlsRef.current = subtitleTrackResult.blobUrls;
-        setCaptionTracks(subtitleTrackResult.captions);
-        setQualitySources(videoSources.map((source) => ({
-          fileId: source.file.id,
-          name: source.file.name,
-          label: source.quality ? `${source.quality}p` : 'Gốc',
-          quality: source.quality,
-          isCurrentFile: source.isCurrentFile,
-        })));
-
+        const videoSources = buildVideoSources(metadata, []);
+        setQualitySources(toPlayerQualitySources(videoSources));
         const expectedUrls = new Set(
           videoSources.map((source) => new URL(source.src, window.location.href).href)
         );
+        let backgroundEnhancementsStarted = false;
 
-        await waitForPlayerReady(activePlayer);
+        await playerReadyPromise;
         if (cancelled) return;
 
-        ((activePlayer as unknown as { config: Plyr.Options }).config.quality ??= {
-          default: videoSources[0]?.quality ?? 1080,
-          options: QUALITY_OPTIONS,
-        }).options = buildPlyrQualityOptions(videoSources);
+        setPlayerQualityOptions(activePlayer, videoSources);
 
         const playerMedia = setPlayerSource(activePlayer, {
           type: 'video',
@@ -630,18 +635,59 @@ export function usePlayer({
             src: source.src,
             size: source.quality ?? undefined,
           })),
-          tracks: subtitleTrackResult.tracks,
+          tracks: [],
         });
 
         const video = playerMedia ?? videoRef.current;
         if (video) {
           videoRef.current = video;
 
+          const startBackgroundEnhancements = () => {
+            if (backgroundEnhancementsStarted) return;
+            backgroundEnhancementsStarted = true;
+
+            const parentFolderId = metadata.parents?.[0];
+            if (!parentFolderId) return;
+
+            void listFolderVideos(parentFolderId, token!).then((folderVideosResult) => {
+              if (cancelled) return;
+
+              const discoveredSources = buildVideoSources(metadata, folderVideosResult?.files ?? []);
+              setQualitySources(toPlayerQualitySources(discoveredSources));
+            }).catch(() => {
+              // Alternate quality sources are optional; keep the current stream running.
+            });
+
+            void listFolderSubtitleFiles(parentFolderId, token!)
+              .then((subtitleFilesResult) => {
+                return buildSubtitleTracks(metadata, subtitleFilesResult?.files ?? [], token!);
+              })
+              .then((subtitleTrackResult) => {
+                if (cancelled || videoRef.current !== video || !isCurrentSource(video, expectedUrls)) {
+                  subtitleTrackResult.blobUrls.forEach((url) => URL.revokeObjectURL(url));
+                  return;
+                }
+
+                cleanupSubtitleTrackElements?.();
+                revokeSubtitleBlobUrls();
+                subtitleBlobUrlsRef.current = subtitleTrackResult.blobUrls;
+                const appendedTrackElements = appendSubtitleTracks(video, subtitleTrackResult.tracks);
+                cleanupSubtitleTrackElements = () => {
+                  appendedTrackElements.forEach((trackElement) => trackElement.remove());
+                };
+                setCaptionTracks(subtitleTrackResult.captions);
+              })
+              .catch(() => {
+                // Captions are optional; video playback should continue without them.
+              });
+          };
+
           const markVideoReady = () => {
             if (cancelled) return;
             if (isCurrentSource(video, expectedUrls) && hasRenderableFrame(video)) {
               clearLoadTimeout();
               setIsLoading(false);
+              startBackgroundEnhancements();
             }
           };
 
@@ -677,6 +723,7 @@ export function usePlayer({
 
             if (isCurrentSource(video, expectedUrls) && hasRenderableFrame(video)) {
               setIsLoading(false);
+              startBackgroundEnhancements();
               return;
             }
 
@@ -686,23 +733,24 @@ export function usePlayer({
             onError?.(message);
           }, VIDEO_LOAD_TIMEOUT_MS);
 
-          video.preload = 'auto';
-          video.crossOrigin = 'anonymous';
-          video.load();
-
           // Restore position
           const savedPosition = getPosition(fileId!);
           if (savedPosition > 0) {
-            videoRef.current.addEventListener(
+            video.addEventListener(
               'loadedmetadata',
               () => {
-                if (videoRef.current && savedPosition < videoRef.current.duration - 10) {
-                  videoRef.current.currentTime = savedPosition;
+                if (savedPosition < video.duration - 10) {
+                  video.currentTime = savedPosition;
                 }
               },
               { once: true }
             );
           }
+
+          video.preload = 'auto';
+          video.crossOrigin = 'anonymous';
+          video.load();
+          markVideoReady();
 
           // Auto-save position every 5 seconds
           if (saveIntervalRef.current) {
@@ -731,6 +779,7 @@ export function usePlayer({
       cancelled = true;
       clearLoadTimeout();
       cleanupVideoListeners?.();
+      cleanupSubtitleTrackElements?.();
       revokeSubtitleBlobUrls();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

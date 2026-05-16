@@ -5,7 +5,9 @@ const PROXY_PREFIX = '/api/drive-proxy/';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 const AUTH_CACHE_NAME = 'nimbus-player-auth';
 const TOKEN_CACHE_KEY = '/__nimbus-player-access-token';
+const STREAM_CACHE_NAME = 'nimbus-player-stream-v1';
 const STREAM_CHUNK_SIZE = 8 * 1024 * 1024;
+const MAX_STREAM_CACHE_ENTRIES = 30;
 
 // Token storage (received from main thread)
 let accessToken = null;
@@ -18,6 +20,11 @@ async function readCachedToken() {
 }
 
 async function writeCachedToken(token) {
+  const previousToken = accessToken || await readCachedToken();
+  if (previousToken && previousToken !== token) {
+    await clearStreamCache();
+  }
+
   accessToken = token;
   const cache = await caches.open(AUTH_CACHE_NAME);
   await cache.put(TOKEN_CACHE_KEY, new Response(token, {
@@ -29,6 +36,7 @@ async function clearCachedToken() {
   accessToken = null;
   const cache = await caches.open(AUTH_CACHE_NAME);
   await cache.delete(TOKEN_CACHE_KEY);
+  await clearStreamCache();
 }
 
 async function getAccessToken() {
@@ -104,6 +112,37 @@ function normalizeRangeHeader(rangeHeader, totalSize) {
   };
 }
 
+async function clearStreamCache() {
+  await caches.delete(STREAM_CACHE_NAME);
+}
+
+function canCacheStreamRange(normalizedRange) {
+  return normalizedRange.start === 0 && Boolean(normalizedRange.requestHeader);
+}
+
+function buildStreamCacheKey(fileId, totalSize, rangeHeader) {
+  const cacheUrl = new URL(`/__nimbus-player-stream/${fileId}`, self.location.origin);
+  cacheUrl.searchParams.set('size', totalSize || '');
+  cacheUrl.searchParams.set('range', rangeHeader);
+  return new Request(cacheUrl.toString());
+}
+
+function responseFromCachedStream(cachedResponse) {
+  return new Response(cachedResponse.body, {
+    status: 206,
+    headers: cachedResponse.headers,
+  });
+}
+
+async function trimStreamCache(cache) {
+  const keys = await cache.keys();
+  if (keys.length <= MAX_STREAM_CACHE_ENTRIES) return;
+
+  await Promise.all(
+    keys.slice(0, keys.length - MAX_STREAM_CACHE_ENTRIES).map((key) => cache.delete(key))
+  );
+}
+
 // Listen for token updates from main thread
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SET_TOKEN') {
@@ -121,10 +160,10 @@ self.addEventListener('fetch', (event) => {
   // Only intercept our proxy requests
   if (!url.pathname.startsWith(PROXY_PREFIX)) return;
 
-  event.respondWith(handleProxyRequest(event.request, url));
+  event.respondWith(handleProxyRequest(event.request, url, event));
 });
 
-async function handleProxyRequest(request, url) {
+async function handleProxyRequest(request, url, event) {
   const token = await getAccessToken();
 
   if (!token) {
@@ -162,7 +201,15 @@ async function handleProxyRequest(request, url) {
     fetchHeaders.set('Range', normalizedRange.requestHeader);
   }
 
+  const streamCacheKey = canCacheStreamRange(normalizedRange)
+    ? buildStreamCacheKey(fileId, totalSize, normalizedRange.requestHeader)
+    : null;
 
+  if (streamCacheKey) {
+    const cache = await caches.open(STREAM_CACHE_NAME);
+    const cachedResponse = await cache.match(streamCacheKey);
+    if (cachedResponse) return responseFromCachedStream(cachedResponse);
+  }
 
   try {
     const response = await fetch(driveUrl, {
@@ -242,10 +289,28 @@ async function handleProxyRequest(request, url) {
       if (contentLength) responseHeaders.set('Content-Length', contentLength);
     }
 
-    return new Response(response.body, {
+    const proxyResponse = new Response(response.body, {
       status,
       headers: responseHeaders,
     });
+
+    if (streamCacheKey && status === 206) {
+      event.waitUntil?.((async () => {
+        try {
+          const cache = await caches.open(STREAM_CACHE_NAME);
+          const cacheableResponse = new Response(proxyResponse.clone().body, {
+            status: 200,
+            headers: new Headers(responseHeaders),
+          });
+          await cache.put(streamCacheKey, cacheableResponse);
+          await trimStreamCache(cache);
+        } catch {
+          // First-chunk cache is opportunistic.
+        }
+      })());
+    }
+
+    return proxyResponse;
   } catch (err) {
     console.error('>>> [SW] Fetch error:', err);
     return new Response(

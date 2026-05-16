@@ -7,6 +7,7 @@ import {
   canFetchUserInfo,
   type UserInfo,
 } from '@/core/auth';
+import { clearDriveCaches } from '@/core/drive';
 import { PENDING_FILE_KEY } from '@/core/constants';
 
 export interface AuthState {
@@ -53,22 +54,21 @@ export function useAuth() {
     if (currentToken) {
       // Sync token to Service Worker
       syncTokenToServiceWorker(currentToken);
+      queueMicrotask(() => setIsLoading(false));
 
       if (!canFetchUserInfo()) {
-        queueMicrotask(() => {
-          setUser(null);
-          setIsLoading(false);
-        });
+        queueMicrotask(() => setUser(null));
         return;
       }
 
-      // Fetch user info (async callback — not synchronous setState)
+      // Fetch user info in the background; token availability should unblock routing.
       fetchUserInfo(currentToken).then((userInfo) => {
+        if (prevTokenRef.current !== currentToken) return;
         setUser(userInfo);
-        setIsLoading(false);
       });
     } else {
       syncTokenToServiceWorker(null);
+      clearDriveCaches();
       // Use queueMicrotask to avoid synchronous setState in effect body
       queueMicrotask(() => {
         setUser(null);
@@ -90,6 +90,7 @@ export function useAuth() {
   const handleLogout = useCallback(() => {
     logOut();
     syncTokenToServiceWorker(null);
+    clearDriveCaches();
     setUser(null);
   }, [logOut]);
 

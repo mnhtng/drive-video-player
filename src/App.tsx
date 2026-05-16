@@ -110,6 +110,7 @@ function App() {
   return (
     <HomeView
       user={auth.user}
+      token={auth.token}
       isAuthenticated={auth.isAuthenticated}
       onLogin={auth.login}
       onLogout={auth.logout}
