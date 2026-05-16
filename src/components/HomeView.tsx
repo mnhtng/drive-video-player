@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   BadgeCheck,
+  CircleAlert,
   Link,
   LogIn,
   LogOut,
@@ -17,12 +18,23 @@ interface HomeViewProps {
   user: UserInfo | null;
   token: string | null;
   isAuthenticated: boolean;
+  authConfigured: boolean;
+  authError: string | null;
   onLogin: (pendingFileId?: string) => void;
   onLogout: () => void;
   onPlay: (fileId: string) => void;
 }
 
-export default function HomeView({ user, token, isAuthenticated, onLogin, onLogout, onPlay }: HomeViewProps) {
+export default function HomeView({
+  user,
+  token,
+  isAuthenticated,
+  authConfigured,
+  authError,
+  onLogin,
+  onLogout,
+  onPlay,
+}: HomeViewProps) {
   const [inputValue, setInputValue] = useState('');
   const [error, setError] = useState('');
 
@@ -84,7 +96,13 @@ export default function HomeView({ user, token, isAuthenticated, onLogin, onLogo
               </Button>
             </div>
           ) : (
-            <Button onClick={() => onLogin()} size="lg" className="h-10">
+            <Button
+              onClick={() => onLogin()}
+              disabled={!authConfigured}
+              size="lg"
+              className="h-10"
+              title={!authConfigured ? 'Google OAuth chưa được cấu hình' : undefined}
+            >
               <LogIn />
               Đăng nhập Google
             </Button>
@@ -107,6 +125,16 @@ export default function HomeView({ user, token, isAuthenticated, onLogin, onLogo
             Dán link Google Drive hoặc File ID để mở video với giao diện player tối giản, hỗ trợ PiP,
             tua nhanh, tốc độ phát và ghi nhớ vị trí xem.
           </p>
+
+          {authError ? (
+            <div
+              role="alert"
+              className="mt-5 flex max-w-2xl items-start gap-3 rounded-lg border border-destructive/45 bg-destructive/10 px-4 py-3 text-sm leading-6 text-destructive"
+            >
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />
+              <span>{authError}</span>
+            </div>
+          ) : null}
 
           <form onSubmit={handleSubmit} className="mt-8 max-w-3xl">
             <Field>

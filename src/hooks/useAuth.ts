@@ -5,6 +5,8 @@ import {
   registerServiceWorker,
   fetchUserInfo,
   canFetchUserInfo,
+  getAuthConfigurationError,
+  isAuthConfigured,
   type UserInfo,
 } from '@/core/auth';
 import { clearDriveCaches } from '@/core/drive';
@@ -15,10 +17,13 @@ export interface AuthState {
   user: UserInfo | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isConfigured: boolean;
 }
 
 export function useAuth() {
   const { token, logIn, logOut, loginInProgress, error: authError } = useAuthContext();
+  const authConfigured = isAuthConfigured();
+  const authConfigurationError = getAuthConfigurationError();
 
   const [user, setUser] = useState<UserInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,15 +33,27 @@ export function useAuth() {
 
   // Register Service Worker
   useEffect(() => {
+    if (!authConfigured) return;
+
     if (!swRegistered.current) {
       registerServiceWorker();
       swRegistered.current = true;
     }
-  }, []);
+  }, [authConfigured]);
 
   // Sync token to SW and fetch user info whenever token changes
   useEffect(() => {
-    const currentToken = token || null;
+    const currentToken = authConfigured ? token || null : null;
+
+    if (!authConfigured) {
+      syncTokenToServiceWorker(null);
+      clearDriveCaches();
+      queueMicrotask(() => {
+        setUser(null);
+        setIsLoading(false);
+      });
+      return;
+    }
 
     // Skip if token hasn't actually changed
     if (currentToken === prevTokenRef.current) {
@@ -75,35 +92,39 @@ export function useAuth() {
         setIsLoading(false);
       });
     }
-  }, [token, loginInProgress]);
-
-
+  }, [authConfigured, token, loginInProgress]);
 
   // Login wrapper: save pending fileId before redirect
   const handleLogin = useCallback((pendingFileId?: string) => {
+    if (!authConfigured) return;
+
     if (pendingFileId) {
       sessionStorage.setItem(PENDING_FILE_KEY, pendingFileId);
     }
     logIn();
-  }, [logIn]);
+  }, [authConfigured, logIn]);
 
   const handleLogout = useCallback(() => {
-    logOut();
+    if (authConfigured) {
+      logOut();
+    }
+
     syncTokenToServiceWorker(null);
     clearDriveCaches();
     setUser(null);
-  }, [logOut]);
+  }, [authConfigured, logOut]);
 
-  const isAuthenticated = !!token && !loginInProgress;
+  const isAuthenticated = authConfigured && !!token && !loginInProgress;
 
   return {
-    token: token || null,
+    token: authConfigured ? token || null : null,
     user,
-    isLoading: isLoading || loginInProgress,
+    isLoading: authConfigured ? isLoading || loginInProgress : false,
     isAuthenticated,
+    isConfigured: authConfigured,
     login: handleLogin,
     logout: handleLogout,
-    error: authError,
+    error: authConfigurationError || authError,
   };
 }
 

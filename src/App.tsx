@@ -94,7 +94,17 @@ function App() {
             <p className="text-sm leading-6 text-muted-foreground">
               Bạn cần đăng nhập Google để truy cập video từ Google Drive.
             </p>
-            <Button onClick={() => auth.login(route.fileId)} size="lg" className="mt-2">
+            {auth.error ? (
+              <p role="alert" className="text-sm leading-6 text-destructive">
+                {auth.error}
+              </p>
+            ) : null}
+            <Button
+              onClick={() => auth.login(route.fileId)}
+              disabled={!auth.isConfigured}
+              size="lg"
+              className="mt-2"
+            >
               <LogIn />
               Đăng nhập với Google
             </Button>
@@ -112,6 +122,8 @@ function App() {
       user={auth.user}
       token={auth.token}
       isAuthenticated={auth.isAuthenticated}
+      authConfigured={auth.isConfigured}
+      authError={auth.error}
       onLogin={auth.login}
       onLogout={auth.logout}
       onPlay={handlePlay}

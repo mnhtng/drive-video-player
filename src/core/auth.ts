@@ -68,10 +68,27 @@ export async function registerServiceWorker(): Promise<void> {
 }
 
 // -- Auth Config --
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI || window.location.origin;
-const SCOPES = import.meta.env.VITE_GOOGLE_OAUTH_SCOPES;
-const TOKEN_PROXY_URL = import.meta.env.VITE_TOKEN_PROXY_URL || '/api/token';
+const DEFAULT_SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+const MISSING_CLIENT_ID = 'missing-google-oauth-client-id';
+
+function readEnvString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+const CLIENT_ID = readEnvString(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+const REDIRECT_URI = readEnvString(import.meta.env.VITE_GOOGLE_REDIRECT_URI) || window.location.origin;
+const SCOPES = readEnvString(import.meta.env.VITE_GOOGLE_OAUTH_SCOPES) || DEFAULT_SCOPES;
+const TOKEN_PROXY_URL = readEnvString(import.meta.env.VITE_TOKEN_PROXY_URL) || '/api/token';
+
+export function isAuthConfigured(): boolean {
+  return CLIENT_ID.length > 0;
+}
+
+export function getAuthConfigurationError(): string | null {
+  if (isAuthConfigured()) return null;
+
+  return 'Google OAuth chưa được cấu hình cho deployment này. Thiếu biến VITE_GOOGLE_CLIENT_ID trong Environment Variables.';
+}
 
 export function canFetchUserInfo(): boolean {
   return String(SCOPES || '')
@@ -81,7 +98,7 @@ export function canFetchUserInfo(): boolean {
 
 export function getAuthConfig(): TAuthConfig {
   return {
-    clientId: CLIENT_ID,
+    clientId: CLIENT_ID || MISSING_CLIENT_ID,
     authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     // Point to our proxy instead of Google directly
     // The proxy will attach client_secret securely
