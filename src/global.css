@@ -50,6 +50,16 @@
   --border: oklch(0.28 0.03 255);
   --input: oklch(0.24 0.03 255);
   --ring: oklch(0.68 0.16 250);
+
+  /* Plyr Theming */
+  --plyr-color-main: var(--primary);
+  --plyr-video-background: var(--background);
+  --plyr-menu-background: var(--popover);
+  --plyr-menu-color: var(--popover-foreground);
+  --plyr-tooltip-background: var(--popover);
+  --plyr-tooltip-color: var(--popover-foreground);
+  --plyr-control-icon-size: 18px;
+  --plyr-font-family: var(--font-sans);
 }
 
 @layer base {

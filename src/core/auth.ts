@@ -3,6 +3,7 @@
 // Token refresh is proxied through /api/token serverless function
 // ============================================================
 import type { TAuthConfig } from 'react-oauth2-code-pkce';
+import { STORAGE_KEY_PREFIX } from '@/core/constants';
 
 export interface UserInfo {
   email: string;
@@ -50,10 +51,9 @@ export async function registerServiceWorker(): Promise<void> {
   }
 
   try {
-    const registration = await navigator.serviceWorker.register('/sw.js', {
+    await navigator.serviceWorker.register('/sw.js', {
       scope: '/',
     });
-    console.log('>>> [Auth] Service Worker registered:', registration.scope);
 
     // Listen for messages from SW
     navigator.serviceWorker.addEventListener('message', (event) => {
@@ -72,6 +72,12 @@ const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI || window.location.origin;
 const SCOPES = import.meta.env.VITE_GOOGLE_OAUTH_SCOPES;
 const TOKEN_PROXY_URL = import.meta.env.VITE_TOKEN_PROXY_URL || '/api/token';
+
+export function canFetchUserInfo(): boolean {
+  return String(SCOPES || '')
+    .split(/\s+/)
+    .includes('openid');
+}
 
 export function getAuthConfig(): TAuthConfig {
   return {
@@ -92,7 +98,7 @@ export function getAuthConfig(): TAuthConfig {
     autoLogin: false,
     // Store tokens in localStorage so they survive page reloads
     storage: 'local',
-    storageKeyPrefix: 'nimbus_player_',
+    storageKeyPrefix: STORAGE_KEY_PREFIX,
     // When refresh token expires, prompt user to re-login
     onRefreshTokenExpire: (event) => {
       event.logIn();

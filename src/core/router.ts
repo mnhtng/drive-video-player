@@ -39,7 +39,7 @@ export function parseCurrentRoute(): ParsedRoute {
         };
       }
     } catch {
-      console.warn('>>> [Router] Failed to parse state parameter');
+      // Ignore parse errors, fallback to checking 'id' param
     }
   }
 

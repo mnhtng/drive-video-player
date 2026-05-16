@@ -3,19 +3,114 @@
 // ============================================================
 const PROXY_PREFIX = '/api/drive-proxy/';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
+const AUTH_CACHE_NAME = 'nimbus-player-auth';
+const TOKEN_CACHE_KEY = '/__nimbus-player-access-token';
+const STREAM_CHUNK_SIZE = 8 * 1024 * 1024;
 
 // Token storage (received from main thread)
 let accessToken = null;
 
+async function readCachedToken() {
+  const cache = await caches.open(AUTH_CACHE_NAME);
+  const response = await cache.match(TOKEN_CACHE_KEY);
+  if (!response) return null;
+  return response.text();
+}
+
+async function writeCachedToken(token) {
+  accessToken = token;
+  const cache = await caches.open(AUTH_CACHE_NAME);
+  await cache.put(TOKEN_CACHE_KEY, new Response(token, {
+    headers: { 'Content-Type': 'text/plain' },
+  }));
+}
+
+async function clearCachedToken() {
+  accessToken = null;
+  const cache = await caches.open(AUTH_CACHE_NAME);
+  await cache.delete(TOKEN_CACHE_KEY);
+}
+
+async function getAccessToken() {
+  if (accessToken) return accessToken;
+  accessToken = await readCachedToken();
+  return accessToken;
+}
+
+function parseTotalSize(totalSize) {
+  if (!totalSize) return null;
+
+  const size = Number(totalSize);
+  return Number.isSafeInteger(size) && size > 0 ? size : null;
+}
+
+function normalizeRangeHeader(rangeHeader, totalSize) {
+  const size = parseTotalSize(totalSize);
+  if (!rangeHeader || !size) {
+    return {
+      requestHeader: rangeHeader,
+      start: null,
+    };
+  }
+
+  const rangeMatch = rangeHeader.trim().match(/^bytes=(\d*)-(\d*)$/);
+  if (!rangeMatch) {
+    return {
+      requestHeader: rangeHeader,
+      start: null,
+    };
+  }
+
+  const [, startValue, endValue] = rangeMatch;
+
+  if (!startValue && endValue) {
+    const suffixLength = Math.min(Number(endValue), size, STREAM_CHUNK_SIZE);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+      return {
+        requestHeader: rangeHeader,
+        start: null,
+      };
+    }
+
+    const start = size - suffixLength;
+    const end = size - 1;
+    return {
+      requestHeader: `bytes=${start}-${end}`,
+      start,
+    };
+  }
+
+  const start = Number(startValue);
+  if (!Number.isSafeInteger(start) || start < 0 || start >= size) {
+    return {
+      requestHeader: rangeHeader,
+      start: null,
+    };
+  }
+
+  const maxChunkEnd = start + STREAM_CHUNK_SIZE - 1;
+  const requestedEnd = endValue ? Number(endValue) : maxChunkEnd;
+  const end = Math.min(requestedEnd, maxChunkEnd, size - 1);
+  if (!Number.isSafeInteger(end) || end < start) {
+    return {
+      requestHeader: rangeHeader,
+      start: null,
+    };
+  }
+
+  return {
+    requestHeader: `bytes=${start}-${end}`,
+    start,
+  };
+}
+
 // Listen for token updates from main thread
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SET_TOKEN') {
-    accessToken = event.data.token;
-    console.log('>>> [SW] Token updated');
+    event.waitUntil?.(writeCachedToken(event.data.token));
   }
   if (event.data?.type === 'CLEAR_TOKEN') {
-    accessToken = null;
-    console.log('>>> [SW] Token cleared');
+    event.waitUntil?.(clearCachedToken());
   }
 });
 
@@ -30,7 +125,9 @@ self.addEventListener('fetch', (event) => {
 });
 
 async function handleProxyRequest(request, url) {
-  if (!accessToken) {
+  const token = await getAccessToken();
+
+  if (!token) {
     return new Response(
       JSON.stringify({ error: 'Not authenticated. Please sign in.' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -47,62 +144,110 @@ async function handleProxyRequest(request, url) {
     );
   }
 
-  const driveUrl = `${DRIVE_API_BASE}/${fileId}?alt=media`;
+  // Total file size passed from the app (needed to construct Content-Range
+  // because Google Drive CORS does NOT expose Content-Range header)
+  const totalSize = url.searchParams.get('size');
+
+  // acknowledgeAbuse=true is needed for large files or files flagged by virus scan
+  const driveUrl = `${DRIVE_API_BASE}/${fileId}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`;
 
   // Build headers — pass through Range header for seeking
-  const headers = new Headers({
-    Authorization: `Bearer ${accessToken}`,
+  const fetchHeaders = new Headers({
+    Authorization: `Bearer ${token}`,
   });
 
   const rangeHeader = request.headers.get('Range');
-  if (rangeHeader) {
-    headers.set('Range', rangeHeader);
+  const normalizedRange = normalizeRangeHeader(rangeHeader, totalSize);
+  if (normalizedRange.requestHeader) {
+    fetchHeaders.set('Range', normalizedRange.requestHeader);
   }
+
+
 
   try {
     const response = await fetch(driveUrl, {
       method: 'GET',
-      headers,
+      headers: fetchHeaders,
+      redirect: 'follow',
     });
 
     if (!response.ok) {
+      console.error(`>>> [SW] Drive API error: ${response.status} for file ${fileId}`);
+
       if (response.status === 401 || response.status === 403) {
-        console.log('>>> [SW] Token expired or invalid');
-        // Notify main thread that token is invalid
+        const errorBody = await response.text();
+        console.error('>>> [SW] Auth error body:', errorBody);
         self.clients.matchAll().then((clients) => {
           clients.forEach((client) => {
             client.postMessage({ type: 'TOKEN_EXPIRED' });
           });
         });
+        return new Response(errorBody, {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
 
       const errorBody = await response.text();
+      console.error('>>> [SW] Error body:', errorBody);
       return new Response(errorBody, {
         status: response.status,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Build response headers
-    const responseHeaders = new Headers();
+    // Read headers from Google's response
     const contentType = response.headers.get('Content-Type');
     const contentLength = response.headers.get('Content-Length');
+    // These are null due to Google Drive CORS not exposing them
     const contentRange = response.headers.get('Content-Range');
-    const acceptRanges = response.headers.get('Accept-Ranges');
 
+    // Build response headers
+    const responseHeaders = new Headers();
     if (contentType) responseHeaders.set('Content-Type', contentType);
-    if (contentLength) responseHeaders.set('Content-Length', contentLength);
-    if (contentRange) responseHeaders.set('Content-Range', contentRange);
-    if (acceptRanges) responseHeaders.set('Accept-Ranges', acceptRanges);
-
+    // Always advertise that we support byte-range requests
+    responseHeaders.set('Accept-Ranges', 'bytes');
     // Allow cross-origin access
     responseHeaders.set('Access-Control-Allow-Origin', '*');
 
+    let status = response.status;
+
+    if (status === 206) {
+      if (contentRange) {
+        // Google exposed Content-Range (handle it)
+        responseHeaders.set('Content-Range', contentRange);
+        if (contentLength) responseHeaders.set('Content-Length', contentLength);
+      } else if (normalizedRange.start !== null && totalSize && contentLength) {
+        // Construct Content-Range from Range request + Content-Length + totalSize
+        const length = parseInt(contentLength);
+        if (Number.isSafeInteger(length) && length > 0) {
+          const start = normalizedRange.start;
+          const end = start + length - 1;
+          const constructedRange = `bytes ${start}-${end}/${totalSize}`;
+          responseHeaders.set('Content-Range', constructedRange);
+          responseHeaders.set('Content-Length', contentLength);
+
+        } else {
+          // Can't parse range — fallback to 200
+          console.warn('>>> [SW] Could not parse Range header — converting to 200');
+          status = 200;
+        }
+      } else {
+        // No Content-Range and can't construct one — convert to 200
+        console.warn('>>> [SW] Got 206 without Content-Range or totalSize — converting to 200');
+        status = 200;
+      }
+    } else {
+      // 200 response — set Content-Length if available
+      if (contentLength) responseHeaders.set('Content-Length', contentLength);
+    }
+
     return new Response(response.body, {
-      status: response.status,
+      status,
       headers: responseHeaders,
     });
   } catch (err) {
+    console.error('>>> [SW] Fetch error:', err);
     return new Response(
       JSON.stringify({ error: 'Failed to fetch from Google Drive', details: err.message }),
       { status: 502, headers: { 'Content-Type': 'application/json' } }
@@ -118,5 +263,4 @@ self.addEventListener('install', () => {
 // Activate — claim all clients
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
-  console.log('>>> [SW] Activated and controlling all clients');
 });

@@ -4,10 +4,10 @@ import {
   syncTokenToServiceWorker,
   registerServiceWorker,
   fetchUserInfo,
+  canFetchUserInfo,
   type UserInfo,
 } from '@/core/auth';
-
-const PENDING_FILE_KEY = 'nimbus_player_pending_file';
+import { PENDING_FILE_KEY } from '@/core/constants';
 
 export interface AuthState {
   token: string | null;
@@ -54,6 +54,14 @@ export function useAuth() {
       // Sync token to Service Worker
       syncTokenToServiceWorker(currentToken);
 
+      if (!canFetchUserInfo()) {
+        queueMicrotask(() => {
+          setUser(null);
+          setIsLoading(false);
+        });
+        return;
+      }
+
       // Fetch user info (async callback — not synchronous setState)
       fetchUserInfo(currentToken).then((userInfo) => {
         setUser(userInfo);
@@ -69,15 +77,7 @@ export function useAuth() {
     }
   }, [token, loginInProgress]);
 
-  // Listen for token expiry from Service Worker
-  useEffect(() => {
-    const handleTokenExpired = () => {
-      console.warn('[useAuth] Token expired — library will auto-refresh via refresh_token');
-    };
 
-    window.addEventListener('auth:tokenExpired', handleTokenExpired);
-    return () => window.removeEventListener('auth:tokenExpired', handleTokenExpired);
-  }, []);
 
   // Login wrapper: save pending fileId before redirect
   const handleLogin = useCallback((pendingFileId?: string) => {

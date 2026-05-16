@@ -11,6 +11,7 @@ import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { extractFileId } from '@/core/drive';
 import type { UserInfo } from '@/core/auth';
+import { APP_NAME } from '@/core/constants';
 
 interface HomeViewProps {
   user: UserInfo | null;
@@ -43,7 +44,7 @@ export default function HomeView({ user, isAuthenticated, onLogin, onLogout, onP
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <img src="/play-icon.png" alt="Logo" className="size-10" />
-            <span className="text-sm font-semibold sm:text-base">Nimbus Player</span>
+            <span className="text-sm font-semibold sm:text-base">{APP_NAME}</span>
           </div>
 
           {isAuthenticated && user ? (
