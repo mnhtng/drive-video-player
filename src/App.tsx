@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useAuth, consumePendingFileId } from '@/hooks/useAuth';
-import { parseCurrentRoute, type ParsedRoute } from '@/core/router';
+import { useAuth, consumePendingFileId, consumePendingLocation } from '@/hooks/useAuth';
+import { buildFolderUrl, buildPlayUrl, parseCurrentRoute, type ParsedRoute } from '@/core/router';
 import HomeView from '@/components/HomeView';
 import PlayerView from '@/components/PlayerView';
 import { Button } from '@/components/ui/button';
@@ -14,17 +14,24 @@ function App() {
   // Guard: once a pending play is scheduled, block any competing setRoute(home)
   const pendingPlayScheduled = useRef(false);
 
-  const handlePlay = useCallback((fileId: string) => {
+  const handlePlay = useCallback((fileId: string, resourceKey?: string) => {
     // Update URL without full reload
-    const url = new URL(window.location.href);
-    url.searchParams.set('id', fileId);
+    const url = new URL(buildPlayUrl(fileId, resourceKey));
     window.history.pushState({}, '', url.toString());
 
-    setRoute({ action: 'play', fileId });
+    setRoute({ action: 'play', fileId, resourceKey });
+  }, []);
+
+  const handleBrowseFolder = useCallback((folderId: string) => {
+    const url = new URL(buildFolderUrl(folderId));
+    window.history.pushState({}, '', url.toString());
+    pendingPlayScheduled.current = false;
+    setRoute({ action: 'folder', folderId });
   }, []);
 
   const handleBack = useCallback(() => {
     const url = new URL(window.location.href);
+    url.pathname = '/';
     url.search = '';
     window.history.pushState({}, '', url.toString());
     document.title = APP_NAME;
@@ -39,7 +46,18 @@ function App() {
     // If authenticated and we haven't checked pending yet, try to restore
     if (auth.isAuthenticated && !pendingChecked.current) {
       pendingChecked.current = true;
+      const pendingLocation = consumePendingLocation();
       const pendingFileId = consumePendingFileId();
+      if (pendingLocation) {
+        pendingPlayScheduled.current = true;
+        window.history.replaceState({}, '', pendingLocation);
+        window.setTimeout(() => {
+          setRoute(parseCurrentRoute());
+          pendingPlayScheduled.current = false;
+        }, 0);
+        return;
+      }
+
       if (pendingFileId) {
         pendingPlayScheduled.current = true;
         window.setTimeout(() => {
@@ -83,13 +101,14 @@ function App() {
   // Player view
   if (route.action === 'play' && route.fileId) {
     if (!auth.isAuthenticated || !auth.token) {
+      const pendingLocation = `${window.location.pathname}${window.location.search}${window.location.hash}`;
       return (
         <div className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
           <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-lg border bg-card p-8 text-center shadow-sm">
-            <div className="flex items-center gap-3">
+            <button type="button" onClick={handleBack} className="flex items-center gap-3 cursor-pointer">
               <img src="/play-icon.png" alt="Logo" className="size-10" />
               <span className="font-semibold">{APP_NAME}</span>
-            </div>
+            </button>
             <h2 className="text-xl font-semibold">Đăng nhập để phát video</h2>
             <p className="text-sm leading-6 text-muted-foreground">
               Bạn cần đăng nhập Google để truy cập video từ Google Drive.
@@ -100,7 +119,7 @@ function App() {
               </p>
             ) : null}
             <Button
-              onClick={() => auth.login(route.fileId)}
+              onClick={() => auth.login(route.fileId, pendingLocation)}
               disabled={!auth.isConfigured}
               size="lg"
               className="mt-2"
@@ -113,20 +132,32 @@ function App() {
       );
     }
 
-    return <PlayerView fileId={route.fileId} token={auth.token} onBack={handleBack} onPlay={handlePlay} />;
+    return (
+      <PlayerView
+        fileId={route.fileId}
+        resourceKey={route.resourceKey}
+        token={auth.token}
+        onBack={handleBack}
+        onPlay={handlePlay}
+      />
+    );
   }
 
   // Home view
   return (
     <HomeView
+      key={route.action === 'folder' ? `folder:${route.folderId}` : 'home'}
       user={auth.user}
       token={auth.token}
       isAuthenticated={auth.isAuthenticated}
       authConfigured={auth.isConfigured}
       authError={auth.error}
+      onHome={handleBack}
       onLogin={auth.login}
       onLogout={auth.logout}
       onPlay={handlePlay}
+      onBrowseFolder={handleBrowseFolder}
+      folderId={route.action === 'folder' ? route.folderId : undefined}
     />
   );
 }

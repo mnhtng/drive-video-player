@@ -10,7 +10,7 @@ import {
   type UserInfo,
 } from '@/core/auth';
 import { clearDriveCaches } from '@/core/drive';
-import { PENDING_FILE_KEY } from '@/core/constants';
+import { PENDING_FILE_KEY, PENDING_LOCATION_KEY } from '@/core/constants';
 
 export interface AuthState {
   token: string | null;
@@ -94,13 +94,20 @@ export function useAuth() {
     }
   }, [authConfigured, token, loginInProgress]);
 
-  // Login wrapper: save pending fileId before redirect
-  const handleLogin = useCallback((pendingFileId?: string) => {
+  // Login wrapper: save pending route before redirect when OAuth returns to origin.
+  const handleLogin = useCallback((pendingFileId?: string, pendingLocation?: string) => {
     if (!authConfigured) return;
 
     if (pendingFileId) {
       sessionStorage.setItem(PENDING_FILE_KEY, pendingFileId);
     }
+
+    const currentLocation = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const locationToRestore = pendingLocation || (currentLocation === '/' ? '' : currentLocation);
+    if (locationToRestore) {
+      sessionStorage.setItem(PENDING_LOCATION_KEY, locationToRestore);
+    }
+
     logIn();
   }, [authConfigured, logIn]);
 
@@ -138,4 +145,12 @@ export function consumePendingFileId(): string | null {
     sessionStorage.removeItem(PENDING_FILE_KEY);
   }
   return fileId;
+}
+
+export function consumePendingLocation(): string | null {
+  const location = sessionStorage.getItem(PENDING_LOCATION_KEY);
+  if (location) {
+    sessionStorage.removeItem(PENDING_LOCATION_KEY);
+  }
+  return location;
 }

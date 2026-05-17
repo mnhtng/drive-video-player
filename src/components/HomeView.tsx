@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
 import {
   BadgeCheck,
   CircleAlert,
@@ -10,9 +10,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { extractFileId, prefetchDriveVideo } from '@/core/drive';
+import { extractDriveFileReference, extractFolderId, getFileMetadata } from '@/core/drive';
 import type { UserInfo } from '@/core/auth';
 import { APP_NAME } from '@/core/constants';
+import DriveBrowser from '@/components/DriveBrowser';
 
 interface HomeViewProps {
   user: UserInfo | null;
@@ -20,9 +21,12 @@ interface HomeViewProps {
   isAuthenticated: boolean;
   authConfigured: boolean;
   authError: string | null;
-  onLogin: (pendingFileId?: string) => void;
+  onHome: () => void;
+  onLogin: (pendingFileId?: string, pendingLocation?: string) => void;
   onLogout: () => void;
-  onPlay: (fileId: string) => void;
+  onPlay: (fileId: string, resourceKey?: string) => void;
+  onBrowseFolder: (folderId: string) => void;
+  folderId?: string;
 }
 
 export default function HomeView({
@@ -31,23 +35,27 @@ export default function HomeView({
   isAuthenticated,
   authConfigured,
   authError,
+  onHome,
   onLogin,
   onLogout,
   onPlay,
+  onBrowseFolder,
+  folderId,
 }: HomeViewProps) {
   const [inputValue, setInputValue] = useState('');
   const [error, setError] = useState('');
 
-  // Prefetch video metadata
+  // Prefetch video metadata — only when input looks like a complete reference
   useEffect(() => {
     if (!isAuthenticated || !token) return;
 
-    const fileId = extractFileId(inputValue);
-    if (!fileId) return;
+    const reference = extractDriveFileReference(inputValue);
+    if (!reference) return;
 
+    // Only prefetch metadata, not the stream; stream prefetch is wasteful while editing.
     const timer = window.setTimeout(() => {
-      void prefetchDriveVideo(fileId, token);
-    }, 350);
+      void getFileMetadata(reference.fileId, token, reference.resourceKey);
+    }, 600);
 
     return () => window.clearTimeout(timer);
   }, [inputValue, isAuthenticated, token]);
@@ -56,23 +64,38 @@ export default function HomeView({
     e.preventDefault();
     setError('');
 
-    const fileId = extractFileId(inputValue);
-    if (!fileId) {
-      setError('Link hoặc ID không hợp lệ. Vui lòng kiểm tra lại.');
+    const folderId = extractFolderId(inputValue);
+    if (folderId) {
+      onBrowseFolder(folderId);
       return;
     }
 
-    onPlay(fileId);
+    const reference = extractDriveFileReference(inputValue);
+    if (!reference) {
+      setError('Link, folder URL hoặc ID không hợp lệ. Vui lòng kiểm tra lại.');
+      return;
+    }
+
+    onPlay(reference.fileId, reference.resourceKey);
+  };
+
+  const handleHomeClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+
+    event.preventDefault();
+    onHome();
   };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-          <div className="flex items-center gap-3">
+          <a href="/" onClick={handleHomeClick} className="flex items-center gap-3 cursor-pointer">
             <img src="/play-icon.png" alt="Logo" className="size-10" />
             <span className="text-sm font-semibold sm:text-base">{APP_NAME}</span>
-          </div>
+          </a>
 
           {isAuthenticated ? (
             <div className="flex items-center gap-2 rounded-lg border bg-card/70 p-1">
@@ -171,9 +194,23 @@ export default function HomeView({
             <span className="font-medium text-foreground">Hỗ trợ</span>
             <span className="rounded-md border bg-muted px-2 py-1 font-mono">drive.google.com/file/d/...</span>
             <span className="rounded-md border bg-muted px-2 py-1 font-mono">drive.google.com/open?id=...</span>
+            <span className="rounded-md border bg-muted px-2 py-1 font-mono">drive.google.com/drive/folders/...</span>
             <span className="rounded-md border bg-muted px-2 py-1 font-mono">File ID</span>
           </div>
         </section>
+
+        {isAuthenticated && token ? (
+          <DriveBrowser token={token} folderId={folderId} onPlay={onPlay} />
+        ) : (
+          <section className="mt-6 rounded-lg border bg-card p-5 shadow-sm sm:p-6">
+            <div>
+              <h2 className="text-base font-semibold">Duyệt và tìm kiếm video trong Drive</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                Đăng nhập để mở file browser, tìm video và duyệt playlist theo folder.
+              </p>
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );

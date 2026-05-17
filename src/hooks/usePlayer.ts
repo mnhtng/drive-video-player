@@ -5,7 +5,7 @@ import {
   fetchDriveFileText,
   getFileMetadata,
   listFolderSubtitleFiles,
-  listFolderVideos,
+  listFolderVideosPage,
   type DriveFile,
 } from '@/core/drive';
 import { APP_NAME, POSITION_KEY_PREFIX, QUALITY_OPTIONS } from '@/core/constants';
@@ -14,6 +14,7 @@ import { LANGUAGE_LABELS, LANGUAGE_ALIASES, PLYR_I18N_VI } from '@/core/i18n';
 export interface UsePlayerOptions {
   fileId: string | null;
   token: string | null;
+  resourceKey?: string;
   onEnded?: () => void;
   onError?: (error: string) => void;
 }
@@ -46,9 +47,11 @@ export interface PlayerQualitySource {
 
 const PLAYER_READY_TIMEOUT_MS = 5000;
 const VIDEO_LOAD_TIMEOUT_MS = 45000;
-const HAVE_CURRENT_DATA_READY_STATE = 2;
+const HAVE_METADATA_READY_STATE = 1;
 const MAX_SUBTITLE_TRACKS = 8;
+const RELATED_FOLDER_VIDEO_LIMIT = 100;
 const VIDEO_READY_EVENTS = [
+  'loadedmetadata',
   'loadeddata',
   'canplay',
   'canplaythrough',
@@ -95,8 +98,8 @@ interface PlayerSourceInfo {
 
 
 
-function hasRenderableFrame(video: HTMLVideoElement): boolean {
-  return video.readyState >= HAVE_CURRENT_DATA_READY_STATE;
+function hasLoadedMetadata(video: HTMLVideoElement): boolean {
+  return video.readyState >= HAVE_METADATA_READY_STATE;
 }
 
 function isCurrentSource(video: HTMLVideoElement, expectedUrls: Set<string>): boolean {
@@ -254,11 +257,12 @@ function toPlayerQualitySources(sources: BuiltVideoSource[]): PlayerQualitySourc
   }));
 }
 
-function buildVideoSources(metadata: DriveFile, folderVideos: DriveFile[]): BuiltVideoSource[] {
+function buildVideoSources(metadata: DriveFile, folderVideos: DriveFile[], fallbackResourceKey?: string): BuiltVideoSource[] {
+  const metadataResourceKey = metadata.resourceKey ?? fallbackResourceKey;
   const currentQuality = inferQuality(metadata);
   const currentSource: BuiltVideoSource = {
     file: metadata,
-    src: buildProxyUrl(metadata.id, metadata.size),
+    src: buildProxyUrl(metadata.id, metadata.size, metadataResourceKey),
     quality: currentQuality,
     isCurrentFile: true,
   };
@@ -284,7 +288,7 @@ function buildVideoSources(metadata: DriveFile, folderVideos: DriveFile[]): Buil
 
     sourcesByQuality.set(quality, {
       file,
-      src: buildProxyUrl(file.id, file.size),
+      src: buildProxyUrl(file.id, file.size, file.id === metadata.id ? metadataResourceKey : file.resourceKey),
       quality,
       isCurrentFile: file.id === metadata.id,
     });
@@ -370,7 +374,7 @@ async function buildSubtitleTracks(
   const blobUrls: string[] = [];
 
   for (const file of fallbackSubtitleFiles) {
-    const text = await fetchDriveFileText(file.id, token);
+    const text = await fetchDriveFileText(file.id, token, file.resourceKey);
     if (!text) continue;
 
     const src = URL.createObjectURL(new Blob([toWebVtt(text, file.name)], { type: 'text/vtt' }));
@@ -472,6 +476,7 @@ function waitForPlayerReady(player: Plyr): Promise<void> {
 export function usePlayer({
   fileId,
   token,
+  resourceKey,
   onEnded,
   onError,
 }: UsePlayerOptions): UsePlayerReturn {
@@ -570,7 +575,7 @@ export function usePlayer({
 
   // Load video when fileId or token changes
   useEffect(() => {
-    const player = playerInstance ?? playerRef.current;
+    const player = playerRef.current;
     if (!fileId || !token || !player) {
       setIsLoading(false);
       return;
@@ -601,7 +606,7 @@ export function usePlayer({
         const playerReadyPromise = waitForPlayerReady(activePlayer);
 
         // Fetch metadata
-        const metadata = await getFileMetadata(fileId!, token!);
+        const metadata = await getFileMetadata(fileId!, token!, resourceKey);
         if (cancelled) return;
 
         if (!metadata) {
@@ -615,7 +620,7 @@ export function usePlayer({
         // Update page title
         document.title = `${metadata.name} — ${APP_NAME}`;
 
-        const videoSources = buildVideoSources(metadata, []);
+        const videoSources = buildVideoSources(metadata, [], resourceKey);
         setQualitySources(toPlayerQualitySources(videoSources));
         const expectedUrls = new Set(
           videoSources.map((source) => new URL(source.src, window.location.href).href)
@@ -643,28 +648,33 @@ export function usePlayer({
           videoRef.current = video;
 
           const startBackgroundEnhancements = () => {
-            if (backgroundEnhancementsStarted) return;
+            if (backgroundEnhancementsStarted || cancelled) return;
             backgroundEnhancementsStarted = true;
 
             const parentFolderId = metadata.parents?.[0];
             if (!parentFolderId) return;
 
-            void listFolderVideos(parentFolderId, token!).then((folderVideosResult) => {
+            void listFolderVideosPage(parentFolderId, token!, {
+              pageSize: RELATED_FOLDER_VIDEO_LIMIT,
+            }).then((folderVideosResult) => {
               if (cancelled) return;
 
-              const discoveredSources = buildVideoSources(metadata, folderVideosResult?.files ?? []);
+              const discoveredSources = buildVideoSources(metadata, folderVideosResult?.files ?? [], resourceKey);
               setQualitySources(toPlayerQualitySources(discoveredSources));
             }).catch(() => {
               // Alternate quality sources are optional; keep the current stream running.
             });
 
+            if (cancelled) return;
+
             void listFolderSubtitleFiles(parentFolderId, token!)
               .then((subtitleFilesResult) => {
+                if (cancelled) return;
                 return buildSubtitleTracks(metadata, subtitleFilesResult?.files ?? [], token!);
               })
               .then((subtitleTrackResult) => {
-                if (cancelled || videoRef.current !== video || !isCurrentSource(video, expectedUrls)) {
-                  subtitleTrackResult.blobUrls.forEach((url) => URL.revokeObjectURL(url));
+                if (!subtitleTrackResult || cancelled || videoRef.current !== video || !isCurrentSource(video, expectedUrls)) {
+                  subtitleTrackResult?.blobUrls.forEach((url) => URL.revokeObjectURL(url));
                   return;
                 }
 
@@ -684,7 +694,7 @@ export function usePlayer({
 
           const markVideoReady = () => {
             if (cancelled) return;
-            if (isCurrentSource(video, expectedUrls) && hasRenderableFrame(video)) {
+            if (isCurrentSource(video, expectedUrls) && hasLoadedMetadata(video)) {
               clearLoadTimeout();
               setIsLoading(false);
               startBackgroundEnhancements();
@@ -721,13 +731,13 @@ export function usePlayer({
           loadTimeout = setTimeout(() => {
             if (cancelled) return;
 
-            if (isCurrentSource(video, expectedUrls) && hasRenderableFrame(video)) {
+            if (isCurrentSource(video, expectedUrls) && hasLoadedMetadata(video)) {
               setIsLoading(false);
               startBackgroundEnhancements();
               return;
             }
 
-            const message = `Video chưa tải được frame đầu tiên sau ${VIDEO_LOAD_TIMEOUT_MS / 1000} giây (${describeVideoState(video)}). File có thể dùng codec không được trình duyệt hỗ trợ hoặc stream bị kẹt sau khi đọc metadata.`;
+            const message = `Video chưa tải được metadata sau ${VIDEO_LOAD_TIMEOUT_MS / 1000} giây (${describeVideoState(video)}). File có thể dùng codec không được trình duyệt hỗ trợ hoặc stream bị kẹt ở bước đọc metadata.`;
             setError(message);
             setIsLoading(false);
             onError?.(message);
@@ -747,9 +757,8 @@ export function usePlayer({
             );
           }
 
-          video.preload = 'auto';
+          video.preload = 'metadata';
           video.crossOrigin = 'anonymous';
-          video.load();
           markVideoReady();
 
           // Auto-save position every 5 seconds
@@ -783,7 +792,7 @@ export function usePlayer({
       revokeSubtitleBlobUrls();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, token, playerInstance]);
+  }, [fileId, token, resourceKey]);
 
   return {
     videoRef,

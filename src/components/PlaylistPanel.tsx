@@ -1,19 +1,43 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Loader2, Play, LayoutList } from 'lucide-react';
-import { listFolderVideos, prefetchDriveVideo, type DriveFile } from '@/core/drive';
+import { Button } from '@/components/ui/button';
+import {
+  DRIVE_BROWSER_FOLDER_VIDEO_LIMIT,
+  listFolderVideosPage,
+  type DriveFile,
+} from '@/core/drive';
 import { formatDuration } from '@/utils/string';
 
 interface PlaylistPanelProps {
   folderId: string;
   token: string;
   currentFileId: string;
-  onSelect: (fileId: string) => void;
+  currentFile?: DriveFile | null;
+  onSelect: (fileId: string, resourceKey?: string) => void;
 }
 
-export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: PlaylistPanelProps) {
+function includeCurrentFile(files: DriveFile[], currentFile: DriveFile | null | undefined, currentFileId: string) {
+  if (!currentFile || currentFile.id !== currentFileId || files.some((file) => file.id === currentFileId)) {
+    return files;
+  }
+
+  return [currentFile, ...files];
+}
+
+export function PlaylistPanel({ folderId, token, currentFileId, currentFile, onSelect }: PlaylistPanelProps) {
   const [files, setFiles] = useState<DriveFile[]>([]);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,10 +45,15 @@ export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: Play
       if (!folderId || !token) return;
       setIsLoading(true);
       setError(null);
-      const res = await listFolderVideos(folderId, token);
+      setNextPageToken(null);
+
+      const res = await listFolderVideosPage(folderId, token, {
+        pageSize: DRIVE_BROWSER_FOLDER_VIDEO_LIMIT,
+      });
       if (cancelled) return;
       if (res && res.files) {
-        setFiles(res.files);
+        setFiles(includeCurrentFile(res.files, currentFile, currentFileId));
+        setNextPageToken(res.nextPageToken ?? null);
       } else {
         setError('Không thể tải danh sách video');
       }
@@ -35,11 +64,33 @@ export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: Play
     return () => {
       cancelled = true;
     };
-  }, [folderId, token]);
+  }, [currentFile, currentFileId, folderId, token]);
 
-  const prefetchFile = (file: DriveFile) => {
-    if (file.id === currentFileId) return;
-    void prefetchDriveVideo(file, token);
+  const handleLoadMore = async () => {
+    if (!nextPageToken || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    setError(null);
+
+    const res = await listFolderVideosPage(folderId, token, {
+      pageToken: nextPageToken,
+      pageSize: DRIVE_BROWSER_FOLDER_VIDEO_LIMIT,
+    });
+
+    if (!isMountedRef.current) return;
+
+    if (res && res.files) {
+      setFiles((currentFiles) => {
+        const knownIds = new Set(currentFiles.map((file) => file.id));
+        const newFiles = res.files.filter((file) => !knownIds.has(file.id));
+        return [...currentFiles, ...newFiles];
+      });
+      setNextPageToken(res.nextPageToken ?? null);
+    } else {
+      setError('Không thể tải thêm video');
+    }
+
+    setIsLoadingMore(false);
   };
 
   if (isLoading) {
@@ -81,9 +132,7 @@ export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: Play
           return (
             <button
               key={file.id}
-              onClick={() => !isCurrent && onSelect(file.id)}
-              onPointerEnter={() => prefetchFile(file)}
-              onFocus={() => prefetchFile(file)}
+              onClick={() => !isCurrent && onSelect(file.id, file.resourceKey)}
               className={[
                 'flex w-full items-start gap-3 rounded-md p-2 text-left transition-colors hover:bg-muted/50',
                 isCurrent ? 'bg-muted/80 ring-1 ring-primary/50' : '',
@@ -91,7 +140,13 @@ export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: Play
             >
               <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded bg-black">
                 {file.thumbnailLink ? (
-                  <img src={file.thumbnailLink} alt="" className="size-full object-cover" />
+                  <img
+                    src={file.thumbnailLink}
+                    alt=""
+                    className="size-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 ) : (
                   <div className="flex size-full items-center justify-center bg-muted">
                     <Play className="size-6 text-muted-foreground/30" />
@@ -123,6 +178,20 @@ export function PlaylistPanel({ folderId, token, currentFileId, onSelect }: Play
             </button>
           );
         })}
+        {nextPageToken ? (
+          <div className="p-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={handleLoadMore}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? <Loader2 className="animate-spin" /> : null}
+              Tải thêm
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -16,15 +16,17 @@ import 'plyr/dist/plyr.css';
 
 interface PlayerViewProps {
   fileId: string;
+  resourceKey?: string;
   token: string;
   onBack: () => void;
-  onPlay: (fileId: string) => void;
+  onPlay: (fileId: string, resourceKey?: string) => void;
 }
 
-export default function PlayerView({ fileId, token, onBack, onPlay }: PlayerViewProps) {
+export default function PlayerView({ fileId, resourceKey, token, onBack, onPlay }: PlayerViewProps) {
   const { videoRef, player, fileMetadata, captionTracks, qualitySources, isLoading, error } = usePlayer({
     fileId,
     token,
+    resourceKey,
   });
 
   const [isTheater, setIsTheater] = useState(false);
@@ -86,7 +88,7 @@ export default function PlayerView({ fileId, token, onBack, onPlay }: PlayerView
       video.removeEventListener('pause', syncPausedState);
       video.removeEventListener('ended', syncPausedState);
     };
-  }, [player, fileId, videoRef]);
+  }, [player, videoRef]);
 
   const handlePlay = () => {
     if (player) {
@@ -233,7 +235,7 @@ export default function PlayerView({ fileId, token, onBack, onPlay }: PlayerView
             <video
               ref={videoRef}
               crossOrigin="anonymous"
-              preload="auto"
+              preload="metadata"
               poster={fileMetadata?.thumbnailLink}
               controls
               playsInline
@@ -253,12 +255,18 @@ export default function PlayerView({ fileId, token, onBack, onPlay }: PlayerView
           </div>
         </main>
 
-        {showPlaylist && parentFolderId && (
-          <aside className="w-80 shrink-0 border-l bg-card flex flex-col hidden md:flex h-full absolute right-0 top-0 bottom-0 z-20 md:relative shadow-2xl">
+        {parentFolderId && showPlaylist && (
+          <aside
+            className={[
+              'w-80 shrink-0 border-l bg-card flex-col h-full absolute right-0 top-0 bottom-0 z-20 md:relative shadow-2xl',
+              'hidden md:flex',
+            ].join(' ')}
+          >
             <PlaylistPanel
               folderId={parentFolderId}
               token={token}
               currentFileId={fileId}
+              currentFile={fileMetadata}
               onSelect={onPlay}
             />
           </aside>

@@ -7,6 +7,9 @@ export const STORAGE_KEY_PREFIX = 'nimbus_player_';
 /** sessionStorage key for storing pending file ID across OAuth redirect */
 export const PENDING_FILE_KEY = 'nimbus_player_pending_file';
 
+/** sessionStorage key for restoring route after OAuth redirect */
+export const PENDING_LOCATION_KEY = 'nimbus_player_pending_location';
+
 /** localStorage key prefix for saving video playback positions */
 export const POSITION_KEY_PREFIX = 'nimbus_player_pos_';
 

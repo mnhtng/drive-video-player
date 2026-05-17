@@ -5,12 +5,15 @@
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const DRIVE_CACHE_TTL_MS = 2 * 60 * 1000;
 const SUBTITLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
-const STREAM_PREFETCH_RANGE_HEADER = 'bytes=0-';
+const STREAM_PREFETCH_RANGE_HEADER = 'bytes=0-262143';
+export const DRIVE_BROWSER_VIDEO_LIMIT = 5;
+export const DRIVE_BROWSER_FOLDER_VIDEO_LIMIT = 25;
 
 export interface DriveFile {
   id: string;
   name: string;
   mimeType: string;
+  resourceKey?: string;
   size?: string;
   thumbnailLink?: string;
   videoMediaMetadata?: {
@@ -28,7 +31,13 @@ export interface DriveFileList {
   nextPageToken?: string;
 }
 
-const DEFAULT_FILE_FIELDS = 'id,name,mimeType,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
+export interface DriveFileReference {
+  fileId: string;
+  resourceKey?: string;
+}
+
+const DEFAULT_FILE_FIELDS = 'id,name,mimeType,resourceKey,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
+const FOLDER_VIDEO_FIELDS = 'id,name,mimeType,resourceKey,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
 
 interface TimedCacheEntry<T> {
   expiresAt: number;
@@ -88,34 +97,60 @@ export function clearDriveCaches(): void {
 }
 
 /**
- * Extract Google Drive file ID from various URL formats:
+ * Extract Google Drive file ID and resource key from various URL formats:
  * - https://drive.google.com/file/d/{fileId}/view
  * - https://drive.google.com/open?id={fileId}
  * - https://docs.google.com/file/d/{fileId}/edit
  * - https://drive.google.com/uc?id={fileId}&export=download
  * - Raw file ID string
  */
-export function extractFileId(input: string): string | null {
+export function extractDriveFileReference(input: string): DriveFileReference | null {
   if (!input) return null;
 
   const trimmed = input.trim();
 
   // Already a raw file ID (alphanumeric + hyphens + underscores, typically 25-60 chars)
   if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
-    return trimmed;
+    return { fileId: trimmed };
   }
 
   // Try URL patterns
   try {
     const url = new URL(trimmed);
+    const resourceKey = url.searchParams.get('resourcekey') || url.searchParams.get('resourceKey') || undefined;
 
     // Pattern: /file/d/{fileId}/ or /d/{fileId}/
     const pathMatch = url.pathname.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]+)/);
-    if (pathMatch) return pathMatch[1];
+    if (pathMatch) return { fileId: pathMatch[1], resourceKey };
 
     // Pattern: ?id={fileId}
     const idParam = url.searchParams.get('id');
-    if (idParam) return idParam;
+    if (idParam) return { fileId: idParam, resourceKey };
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+export function extractFileId(input: string): string | null {
+  return extractDriveFileReference(input)?.fileId ?? null;
+}
+
+export function extractFolderId(input: string): string | null {
+  if (!input) return null;
+
+  const trimmed = input.trim();
+
+  try {
+    const url = new URL(trimmed);
+    const folderMatch = url.pathname.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+    if (folderMatch) return folderMatch[1];
+
+    if (url.pathname.includes('/drive/')) {
+      const idParam = url.searchParams.get('id');
+      if (idParam) return idParam;
+    }
   } catch {
     return null;
   }
@@ -128,9 +163,27 @@ export function extractFileId(input: string): string | null {
  * Pass fileSize so the SW can construct Content-Range headers
  * (Google Drive CORS doesn't expose Content-Range).
  */
-export function buildProxyUrl(fileId: string, fileSize?: string): string {
+export function buildProxyUrl(fileId: string, fileSize?: string, resourceKey?: string): string {
   const base = `/api/drive-proxy/${fileId}`;
-  return fileSize ? `${base}?size=${fileSize}` : base;
+  const params = new URLSearchParams();
+  if (fileSize) params.set('size', fileSize);
+  if (resourceKey) params.set('resourcekey', resourceKey);
+
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+function escapeDriveQueryValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function tokenizeSearchQuery(query: string): string[] {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, 8);
 }
 
 async function listFilesByQuery(
@@ -139,55 +192,124 @@ async function listFilesByQuery(
   fileFields = DEFAULT_FILE_FIELDS,
   pageSize = '100'
 ): Promise<DriveFileList | null> {
-  const files: DriveFile[] = [];
-  let nextPageToken: string | undefined;
-
+  // Single page fetch — avoids unbounded loop that blocks the thread
+  // when folders contain hundreds of files.
   try {
-    do {
-      const params = new URLSearchParams({
-        q: query,
-        fields: `nextPageToken,files(${fileFields})`,
-        orderBy: 'name',
-        pageSize,
-        supportsAllDrives: 'true',
-        includeItemsFromAllDrives: 'true',
-      });
+    const params = new URLSearchParams({
+      q: query,
+      fields: `nextPageToken,files(${fileFields})`,
+      orderBy: 'name',
+      pageSize,
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+    });
 
-      if (nextPageToken) params.set('pageToken', nextPageToken);
+    const res = await fetch(`${DRIVE_API_BASE}/files?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-      const res = await fetch(`${DRIVE_API_BASE}/files?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+    if (!res.ok) return null;
 
-      if (!res.ok) return null;
-
-      const page = await res.json() as DriveFileList;
-      files.push(...(page.files ?? []));
-      nextPageToken = page.nextPageToken;
-    } while (nextPageToken);
-
-    return { files };
+    return await res.json();
   } catch {
     return null;
   }
 }
 
+async function listFilesPageByQuery(
+  query: string,
+  token: string,
+  options: {
+    fileFields?: string;
+    pageSize?: string;
+    pageToken?: string;
+    orderBy?: string;
+  } = {}
+): Promise<DriveFileList | null> {
+  const {
+    fileFields = DEFAULT_FILE_FIELDS,
+    pageSize = '50',
+    pageToken,
+    orderBy = 'name',
+  } = options;
+
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      fields: `nextPageToken,files(${fileFields})`,
+      orderBy,
+      pageSize,
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+    });
+
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const res = await fetch(`${DRIVE_API_BASE}/files?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function listAllFilesByQuery(
+  query: string,
+  token: string,
+  options: {
+    fileFields?: string;
+    pageSize?: string;
+    orderBy?: string;
+  } = {}
+): Promise<DriveFileList | null> {
+  const files: DriveFile[] = [];
+  const seenPageTokens = new Set<string>();
+  let pageToken: string | undefined;
+
+  do {
+    const fileResult = await listFilesPageByQuery(query, token, {
+      ...options,
+      pageToken,
+    });
+
+    if (!fileResult) return null;
+
+    files.push(...(fileResult.files ?? []));
+    pageToken = fileResult.nextPageToken;
+
+    if (pageToken) {
+      if (seenPageTokens.has(pageToken)) break;
+      seenPageTokens.add(pageToken);
+    }
+  } while (pageToken);
+
+  return { files };
+}
+
 // -- API Calls --
 export async function getFileMetadata(
   fileId: string,
-  token: string
+  token: string,
+  resourceKey?: string
 ): Promise<DriveFile | null> {
   const fields = DEFAULT_FILE_FIELDS;
-  const cacheKey = buildTokenCacheKey(token, `metadata:${fileId}`);
+  const cacheKey = buildTokenCacheKey(token, `metadata:${fileId}:${resourceKey ?? ''}`);
 
   return getCachedPromise(metadataCache, cacheKey, DRIVE_CACHE_TTL_MS, async () => {
     try {
-      const res = await fetch(
-        `${DRIVE_API_BASE}/files/${fileId}?fields=${fields}&supportsAllDrives=true`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const params = new URLSearchParams({
+        fields,
+        supportsAllDrives: 'true',
+      });
+
+      if (resourceKey) params.set('resourceKey', resourceKey);
+
+      const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!res.ok) {
         console.error('>>> [Drive] Failed to get file metadata:', res.status);
@@ -204,39 +326,36 @@ export async function getFileMetadata(
 
 export async function listFolderVideos(
   folderId: string,
-  token: string,
-  pageToken?: string
+  token: string
 ): Promise<DriveFileList | null> {
   const query = `'${folderId}' in parents and mimeType contains 'video/' and trashed = false`;
-  const fields = 'id,name,mimeType,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
 
-  if (!pageToken) {
-    const cacheKey = buildTokenCacheKey(token, `folderVideos:${folderId}`);
-    return getCachedPromise(folderVideosCache, cacheKey, DRIVE_CACHE_TTL_MS, () => {
-      return listFilesByQuery(query, token, fields);
-    });
-  }
-
-  try {
-    const params = new URLSearchParams({
-      q: query,
-      fields: `nextPageToken,files(${fields})`,
+  const cacheKey = buildTokenCacheKey(token, `folderVideos:${folderId}`);
+  return getCachedPromise(folderVideosCache, cacheKey, DRIVE_CACHE_TTL_MS, () => {
+    return listAllFilesByQuery(query, token, {
+      fileFields: FOLDER_VIDEO_FIELDS,
       orderBy: 'name',
-      pageSize: '50',
-      supportsAllDrives: 'true',
-      includeItemsFromAllDrives: 'true',
-      pageToken,
+      pageSize: '1000',
     });
+  });
+}
 
-    const res = await fetch(`${DRIVE_API_BASE}/files?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+export async function listFolderVideosPage(
+  folderId: string,
+  token: string,
+  options: {
+    pageToken?: string;
+    pageSize?: number;
+  } = {}
+): Promise<DriveFileList | null> {
+  const query = `'${folderId}' in parents and mimeType contains 'video/' and trashed = false`;
 
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+  return listFilesPageByQuery(query, token, {
+    fileFields: FOLDER_VIDEO_FIELDS,
+    orderBy: 'name',
+    pageSize: String(options.pageSize ?? DRIVE_BROWSER_FOLDER_VIDEO_LIMIT),
+    pageToken: options.pageToken,
+  });
 }
 
 export async function listFolderSubtitleFiles(
@@ -251,30 +370,72 @@ export async function listFolderSubtitleFiles(
 
   const cacheKey = buildTokenCacheKey(token, `folderSubtitles:${folderId}`);
   return getCachedPromise(folderSubtitlesCache, cacheKey, DRIVE_CACHE_TTL_MS, () => {
-    return listFilesByQuery(query, token, 'id,name,mimeType,size,modifiedTime,parents');
+    return listFilesByQuery(query, token, 'id,name,mimeType,resourceKey,size,modifiedTime,parents');
   });
 }
 
 export async function fetchDriveFileText(
   fileId: string,
-  token: string
+  token: string,
+  resourceKey?: string
 ): Promise<string | null> {
-  const cacheKey = buildTokenCacheKey(token, `text:${fileId}`);
+  const cacheKey = buildTokenCacheKey(token, `text:${fileId}:${resourceKey ?? ''}`);
 
   return getCachedPromise(subtitleTextCache, cacheKey, SUBTITLE_TEXT_CACHE_TTL_MS, async () => {
     try {
-      const res = await fetch(
-        `${DRIVE_API_BASE}/files/${fileId}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const params = new URLSearchParams({
+        alt: 'media',
+        supportsAllDrives: 'true',
+        acknowledgeAbuse: 'true',
+      });
+
+      if (resourceKey) params.set('resourceKey', resourceKey);
+
+      const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!res.ok) return null;
       return await res.text();
     } catch {
       return null;
     }
+  });
+}
+
+export async function listDriveVideos(
+  token: string
+): Promise<DriveFileList | null> {
+  return listFilesPageByQuery(
+    "mimeType contains 'video/' and trashed = false",
+    token,
+    {
+      orderBy: 'modifiedTime desc',
+      pageSize: String(DRIVE_BROWSER_VIDEO_LIMIT),
+    }
+  );
+}
+
+export async function searchDriveVideos(
+  query: string,
+  token: string
+): Promise<DriveFileList | null> {
+  const tokens = tokenizeSearchQuery(query);
+  if (tokens.length === 0) return listDriveVideos(token);
+
+  const nameClauses = tokens.map((token) => {
+    return `name contains '${escapeDriveQueryValue(token)}'`;
+  });
+
+  const driveQuery = [
+    "mimeType contains 'video/'",
+    'trashed = false',
+    ...nameClauses,
+  ].join(' and ');
+
+  return listFilesPageByQuery(driveQuery, token, {
+    orderBy: 'modifiedTime desc',
+    pageSize: String(DRIVE_BROWSER_VIDEO_LIMIT),
   });
 }
 
@@ -300,20 +461,25 @@ export async function getFolderInfo(
   });
 }
 
-export async function prefetchDriveVideo(fileOrId: DriveFile | string, token: string): Promise<void> {
+export async function prefetchDriveVideo(
+  fileOrId: DriveFile | string,
+  token: string,
+  resourceKey?: string
+): Promise<void> {
   const metadata = typeof fileOrId === 'string'
-    ? await getFileMetadata(fileOrId, token)
+    ? await getFileMetadata(fileOrId, token, resourceKey)
     : fileOrId;
 
   if (!metadata?.id || !metadata.size) return;
 
-  const cacheKey = buildTokenCacheKey(token, `stream:${metadata.id}:${metadata.size}`);
+  const resolvedResourceKey = resourceKey ?? metadata.resourceKey;
+  const cacheKey = buildTokenCacheKey(token, `stream:${metadata.id}:${metadata.size}:${resolvedResourceKey ?? ''}`);
   const existing = streamPrefetchPromises.get(cacheKey);
   if (existing) return existing;
 
   let succeeded = false;
   const promise = (async () => {
-    const res = await fetch(buildProxyUrl(metadata.id, metadata.size), {
+    const res = await fetch(buildProxyUrl(metadata.id, metadata.size, resolvedResourceKey), {
       headers: { Range: STREAM_PREFETCH_RANGE_HEADER },
     });
 

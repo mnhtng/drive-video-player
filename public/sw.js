@@ -6,7 +6,7 @@ const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 const AUTH_CACHE_NAME = 'nimbus-player-auth';
 const TOKEN_CACHE_KEY = '/__nimbus-player-access-token';
 const STREAM_CACHE_NAME = 'nimbus-player-stream-v1';
-const STREAM_CHUNK_SIZE = 8 * 1024 * 1024;
+const STREAM_CHUNK_SIZE = 2 * 1024 * 1024;
 const MAX_STREAM_CACHE_ENTRIES = 30;
 
 // Token storage (received from main thread)
@@ -120,10 +120,11 @@ function canCacheStreamRange(normalizedRange) {
   return normalizedRange.start === 0 && Boolean(normalizedRange.requestHeader);
 }
 
-function buildStreamCacheKey(fileId, totalSize, rangeHeader) {
+function buildStreamCacheKey(fileId, totalSize, rangeHeader, resourceKey) {
   const cacheUrl = new URL(`/__nimbus-player-stream/${fileId}`, self.location.origin);
   cacheUrl.searchParams.set('size', totalSize || '');
   cacheUrl.searchParams.set('range', rangeHeader);
+  cacheUrl.searchParams.set('resourcekey', resourceKey || '');
   return new Request(cacheUrl.toString());
 }
 
@@ -186,9 +187,14 @@ async function handleProxyRequest(request, url, event) {
   // Total file size passed from the app (needed to construct Content-Range
   // because Google Drive CORS does NOT expose Content-Range header)
   const totalSize = url.searchParams.get('size');
+  const resourceKey = url.searchParams.get('resourcekey') || url.searchParams.get('resourceKey');
 
   // acknowledgeAbuse=true is needed for large files or files flagged by virus scan
-  const driveUrl = `${DRIVE_API_BASE}/${fileId}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`;
+  const driveUrl = new URL(`${DRIVE_API_BASE}/${fileId}`);
+  driveUrl.searchParams.set('alt', 'media');
+  driveUrl.searchParams.set('supportsAllDrives', 'true');
+  driveUrl.searchParams.set('acknowledgeAbuse', 'true');
+  if (resourceKey) driveUrl.searchParams.set('resourceKey', resourceKey);
 
   // Build headers — pass through Range header for seeking
   const fetchHeaders = new Headers({
@@ -202,7 +208,7 @@ async function handleProxyRequest(request, url, event) {
   }
 
   const streamCacheKey = canCacheStreamRange(normalizedRange)
-    ? buildStreamCacheKey(fileId, totalSize, normalizedRange.requestHeader)
+    ? buildStreamCacheKey(fileId, totalSize, normalizedRange.requestHeader, resourceKey)
     : null;
 
   if (streamCacheKey) {
@@ -212,7 +218,7 @@ async function handleProxyRequest(request, url, event) {
   }
 
   try {
-    const response = await fetch(driveUrl, {
+    const response = await fetch(driveUrl.toString(), {
       method: 'GET',
       headers: fetchHeaders,
       redirect: 'follow',

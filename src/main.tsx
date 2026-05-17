@@ -9,13 +9,18 @@ import '@/global.css'
 import App from '@/App.tsx'
 
 const authConfig = getAuthConfig();
+const isProduction = import.meta.env.PROD;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider authConfig={authConfig}>
       <App />
     </AuthProvider>
-    <SpeedInsights />
-    <Analytics />
+    {isProduction ? (
+      <>
+        <SpeedInsights />
+        <Analytics />
+      </>
+    ) : null}
   </StrictMode>,
 )
