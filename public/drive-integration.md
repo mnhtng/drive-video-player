@@ -112,3 +112,8 @@ Cuộn lên các phần tùy chọn phía trên trong trang cấu hình:
 - **App chỉ hiện với tài khoản của bạn, không hiện với người khác**: Nếu app chưa publish/install qua Google Workspace Marketplace hoặc người dùng không nằm trong danh sách test users của OAuth consent screen, người khác có thể chưa cài được app.
 - **Dùng tài khoản Google Workspace công ty/trường học**: Admin có thể chặn third-party Drive apps hoặc OAuth app chưa được trust. Cần kiểm tra chính sách trong Google Admin Console.
 - **Mở app nhưng báo lỗi không tải được video**: Kiểm tra lại xem ứng dụng đã được cấu hình biến môi trường OAuth đúng trên môi trường deploy chưa (đặc biệt là URI Redirect của Google Client ID có khớp với domain deploy không).
+
+## 5. Tham khảo
+
+- <https://developers.google.com/workspace/drive/api/guides/enable-sdk?hl=vi>
+- <https://developers.google.com/workspace/marketplace/enable-configure-sdk?hl=vi>

@@ -121,7 +121,7 @@ export function PlaylistPanel({ folderId, token, currentFileId, currentFile, onS
     <div className="flex h-full flex-col overflow-hidden bg-card border-l">
       <div className="flex items-center gap-2 border-b p-3 font-semibold shadow-sm">
         <LayoutList className="size-4" />
-        <span className="text-sm">Playlist Thư Mục</span>
+        <span className="text-sm">Danh sách phát trong thư mục</span>
         <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           {files.length}
         </span>

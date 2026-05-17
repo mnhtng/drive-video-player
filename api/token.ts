@@ -34,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Phương thức request không được hỗ trợ.' });
   }
 
   // Set CORS headers for all responses
@@ -45,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { grant_type, code, redirect_uri, code_verifier, refresh_token } = req.body;
 
   if (!grant_type) {
-    return res.status(400).json({ error: 'Missing grant_type' });
+    return res.status(400).json({ error: 'Thiếu grant_type.' });
   }
 
   // Build the request body for Google's token endpoint
@@ -58,7 +58,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (grant_type === 'authorization_code') {
     // Initial token exchange: auth code → access_token + refresh_token
     if (!code || !redirect_uri) {
-      return res.status(400).json({ error: 'Missing code or redirect_uri for authorization_code grant' });
+      return res.status(400).json({ error: 'Thiếu code hoặc redirect_uri cho authorization_code grant.' });
     }
     tokenParams.code = code;
     tokenParams.redirect_uri = redirect_uri;
@@ -68,11 +68,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } else if (grant_type === 'refresh_token') {
     // Token refresh: refresh_token → new access_token
     if (!refresh_token) {
-      return res.status(400).json({ error: 'Missing refresh_token' });
+      return res.status(400).json({ error: 'Thiếu refresh_token.' });
     }
     tokenParams.refresh_token = refresh_token;
   } else {
-    return res.status(400).json({ error: `Unsupported grant_type: ${grant_type}` });
+    return res.status(400).json({ error: `grant_type không được hỗ trợ: ${grant_type}` });
   }
 
   try {
@@ -92,6 +92,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(data);
   } catch (err) {
     console.error('>>> [Token Proxy] Fetch error:', err);
-    return res.status(502).json({ error: 'Failed to communicate with Google OAuth server' });
+    return res.status(502).json({ error: 'Không thể kết nối tới Google OAuth server.' });
   }
 }

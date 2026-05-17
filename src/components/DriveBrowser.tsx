@@ -227,7 +227,7 @@ export default function DriveBrowser({ token, folderId, onPlay }: DriveBrowserPr
           <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
             <span>Chế độ</span>
             <span className="font-medium text-foreground">
-              {mode === 'folder' ? 'Folder' : mode === 'search' ? 'Search' : 'Recent'}
+              {mode === 'folder' ? 'Thư mục' : mode === 'search' ? 'Tìm kiếm' : 'Gần đây'}
             </span>
           </div>
           <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">

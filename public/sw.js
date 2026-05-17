@@ -169,7 +169,7 @@ async function handleProxyRequest(request, url, event) {
 
   if (!token) {
     return new Response(
-      JSON.stringify({ error: 'Not authenticated. Please sign in.' }),
+      JSON.stringify({ error: 'Chưa xác thực. Vui lòng đăng nhập.' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     );
   }
@@ -179,7 +179,7 @@ async function handleProxyRequest(request, url, event) {
 
   if (!fileId) {
     return new Response(
-      JSON.stringify({ error: 'Missing file ID' }),
+      JSON.stringify({ error: 'Thiếu File ID.' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
@@ -320,7 +320,7 @@ async function handleProxyRequest(request, url, event) {
   } catch (err) {
     console.error('>>> [SW] Fetch error:', err);
     return new Response(
-      JSON.stringify({ error: 'Failed to fetch from Google Drive', details: err.message }),
+      JSON.stringify({ error: 'Không thể tải dữ liệu từ Google Drive.', details: err.message }),
       { status: 502, headers: { 'Content-Type': 'application/json' } }
     );
   }

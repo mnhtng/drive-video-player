@@ -87,7 +87,7 @@ export function isAuthConfigured(): boolean {
 export function getAuthConfigurationError(): string | null {
   if (isAuthConfigured()) return null;
 
-  return 'Google OAuth chưa được cấu hình cho deployment này. Thiếu biến VITE_GOOGLE_CLIENT_ID trong Environment Variables.';
+  return 'Google OAuth chưa được cấu hình cho môi trường triển khai này. Thiếu biến VITE_GOOGLE_CLIENT_ID trong Environment Variables.';
 }
 
 export function canFetchUserInfo(): boolean {

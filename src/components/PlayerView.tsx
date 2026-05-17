@@ -134,7 +134,7 @@ export default function PlayerView({ fileId, resourceKey, token, onBack, onPlay 
                     className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground"
                     title={qualitySources.map((source) => `${source.label}: ${source.name}`).join('\n')}
                   >
-                    Quality {qualitySources.map((source) => source.label).join(' / ')}
+                    Chất lượng {qualitySources.map((source) => source.label).join(' / ')}
                   </span>
                 )}
                 {captionTracks.length > 0 && (
@@ -180,7 +180,7 @@ export default function PlayerView({ fileId, resourceKey, token, onBack, onPlay 
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button variant="ghost" size="icon" onClick={() => setIsTheater(!isTheater)} title="Theater Mode">
+          <Button variant="ghost" size="icon" onClick={() => setIsTheater(!isTheater)} title="Chế độ rạp">
             <Maximize className="size-4" />
           </Button>
 
@@ -189,7 +189,7 @@ export default function PlayerView({ fileId, resourceKey, token, onBack, onPlay 
               variant={showPlaylist ? 'secondary' : 'ghost'}
               size="icon"
               onClick={() => setShowPlaylist(!showPlaylist)}
-              title="Playlist"
+              title="Danh sách phát"
             >
               <ListVideo className="size-4" />
             </Button>
