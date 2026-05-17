@@ -212,6 +212,17 @@ export default function HomeView({
           </section>
         )}
       </main>
+
+      <footer className="border-t bg-background">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p>
+            {APP_NAME} mở và phát video được lưu trong Google Drive của người dùng.
+          </p>
+          <a href="/privacy.html" className="font-medium text-foreground underline-offset-4 hover:underline">
+            Chính sách quyền riêng tư
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }
