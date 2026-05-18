@@ -15,6 +15,7 @@ export interface UsePlayerOptions {
   fileId: string | null;
   token: string | null;
   resourceKey?: string;
+  reloadKey?: number;
   onEnded?: () => void;
   onError?: (error: string) => void;
 }
@@ -24,9 +25,13 @@ export interface UsePlayerReturn {
   player: Plyr | null;
   fileMetadata: DriveFile | null;
   captionTracks: PlayerCaptionTrack[];
+  localCaptionTracks: PlayerCaptionTrack[];
   qualitySources: PlayerQualitySource[];
   isLoading: boolean;
   error: string | null;
+  subtitleError: string | null;
+  addLocalSubtitleFiles: (files: File[]) => Promise<void>;
+  clearLocalSubtitleTracks: () => void;
 }
 
 export interface PlayerCaptionTrack {
@@ -398,6 +403,42 @@ async function buildSubtitleTracks(
   return { tracks, blobUrls, captions };
 }
 
+async function buildUploadedSubtitleTracks(files: File[]): Promise<{
+  tracks: BuiltSubtitleTrack[];
+  blobUrls: string[];
+  captions: PlayerCaptionTrack[];
+}> {
+  const supportedFiles = files
+    .filter((file) => isSubtitleExtension(file.name))
+    .slice(0, MAX_SUBTITLE_TRACKS);
+
+  const tracks: BuiltSubtitleTrack[] = [];
+  const captions: PlayerCaptionTrack[] = [];
+  const blobUrls: string[] = [];
+
+  for (const file of supportedFiles) {
+    const text = await file.text();
+    const src = URL.createObjectURL(new Blob([toWebVtt(text, file.name)], { type: 'text/vtt' }));
+    const language = inferSubtitleLanguage(file.name);
+    const label = inferSubtitleLabel(file.name, tracks.length);
+    blobUrls.push(src);
+    tracks.push({
+      kind: 'subtitles',
+      label,
+      srclang: language ?? `x-uploaded-subtitle-${tracks.length + 1}`,
+      src,
+      default: false,
+    });
+    captions.push({
+      label,
+      language,
+      fileName: file.name,
+    });
+  }
+
+  return { tracks, blobUrls, captions };
+}
+
 function setPlayerSource(player: Plyr, source: PlayerSourceInfo): HTMLVideoElement | null {
   (player as unknown as { source: PlayerSourceInfo }).source = source;
   return (player as PlyrWithMedia).media ?? null;
@@ -477,6 +518,7 @@ export function usePlayer({
   fileId,
   token,
   resourceKey,
+  reloadKey = 0,
   onEnded,
   onError,
 }: UsePlayerOptions): UsePlayerReturn {
@@ -489,12 +531,58 @@ export function usePlayer({
   const destroyPlayerTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const playerRef = useRef<Plyr | null>(null);
   const subtitleBlobUrlsRef = useRef<string[]>([]);
+  const localSubtitleBlobUrlsRef = useRef<string[]>([]);
+  const localSubtitleTrackElementsRef = useRef<HTMLTrackElement[]>([]);
   const [captionTracks, setCaptionTracks] = useState<PlayerCaptionTrack[]>([]);
+  const [localCaptionTracks, setLocalCaptionTracks] = useState<PlayerCaptionTrack[]>([]);
   const [qualitySources, setQualitySources] = useState<PlayerQualitySource[]>([]);
+  const [subtitleError, setSubtitleError] = useState<string | null>(null);
 
   const revokeSubtitleBlobUrls = () => {
     subtitleBlobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     subtitleBlobUrlsRef.current = [];
+  };
+
+  const clearLocalSubtitleTracks = () => {
+    localSubtitleTrackElementsRef.current.forEach((trackElement) => trackElement.remove());
+    localSubtitleTrackElementsRef.current = [];
+    localSubtitleBlobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    localSubtitleBlobUrlsRef.current = [];
+    setLocalCaptionTracks([]);
+    setSubtitleError(null);
+  };
+
+  const addLocalSubtitleFiles = async (files: File[]) => {
+    const subtitleFiles = files.filter((file) => isSubtitleExtension(file.name));
+    if (subtitleFiles.length === 0) {
+      setSubtitleError('Chỉ hỗ trợ file phụ đề .srt hoặc .vtt.');
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) {
+      setSubtitleError('Trình phát chưa sẵn sàng để thêm phụ đề.');
+      return;
+    }
+
+    let result: Awaited<ReturnType<typeof buildUploadedSubtitleTracks>>;
+    try {
+      result = await buildUploadedSubtitleTracks(subtitleFiles);
+    } catch {
+      setSubtitleError('Không đọc được file phụ đề đã chọn.');
+      return;
+    }
+    if (result.tracks.length === 0) {
+      result.blobUrls.forEach((url) => URL.revokeObjectURL(url));
+      setSubtitleError('Không đọc được file phụ đề đã chọn.');
+      return;
+    }
+
+    clearLocalSubtitleTracks();
+    localSubtitleBlobUrlsRef.current = result.blobUrls;
+    localSubtitleTrackElementsRef.current = appendSubtitleTracks(video, result.tracks);
+    setLocalCaptionTracks(result.captions);
+    setSubtitleError(null);
   };
 
   // Initialize Plyr
@@ -506,6 +594,7 @@ export function usePlayer({
 
     const media = videoRef.current;
     if (!media && !playerRef.current) return;
+    const usesCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
 
     const player = playerRef.current ?? getAttachedPlyr(media) ?? (
       // @ts-expect-error - plyr types have conflicting export assignments
@@ -549,6 +638,7 @@ export function usePlayer({
           update: true,
         },
         seekTime: 5,
+        hideControls: !usesCoarsePointer,
         invertTime: false,
         i18n: PLYR_I18N_VI,
       })
@@ -562,6 +652,7 @@ export function usePlayer({
         clearInterval(saveIntervalRef.current);
       }
       revokeSubtitleBlobUrls();
+      clearLocalSubtitleTracks();
 
       destroyPlayerTimerRef.current = setTimeout(() => {
         if (playerRef.current !== player) return;
@@ -599,6 +690,7 @@ export function usePlayer({
       setError(null);
       setFileMetadata(null);
       setCaptionTracks([]);
+      clearLocalSubtitleTracks();
       setQualitySources([]);
       revokeSubtitleBlobUrls();
 
@@ -790,17 +882,22 @@ export function usePlayer({
       cleanupVideoListeners?.();
       cleanupSubtitleTrackElements?.();
       revokeSubtitleBlobUrls();
+      clearLocalSubtitleTracks();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, token, resourceKey]);
+  }, [fileId, token, resourceKey, reloadKey]);
 
   return {
     videoRef,
     player: playerInstance,
     fileMetadata,
     captionTracks,
+    localCaptionTracks,
     qualitySources,
     isLoading,
     error,
+    subtitleError,
+    addLocalSubtitleFiles,
+    clearLocalSubtitleTracks,
   };
 }

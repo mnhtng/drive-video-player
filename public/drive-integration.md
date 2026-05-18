@@ -541,9 +541,142 @@ Sau khi gắn tag và deploy, dữ liệu có thể mất tối đa khoảng 30 
 
 ---
 
-## 8. Quá trình kiểm tra (Testing)
+## 8. Triển khai PWA cho Google Drive Mobile
+
+Google Drive mobile app không luôn hiển thị web app trong menu **Mở trong/Open in** giống Drive trên desktop web. Với mobile, luồng thực tế nên hỗ trợ là:
+
+1. **Sao chép đường liên kết** trong Drive app -> dán vào Nimbus Player.
+2. **Chia sẻ/Share** trong Drive app -> chọn Nimbus Player nếu PWA đã được cài và trình duyệt hỗ trợ Web Share Target.
+
+PWA không thay thế Drive UI Integration trên desktop. Đây là lớp mobile fallback để người dùng mở video từ Drive app ít thao tác hơn.
+
+### Bước 8.1: Thêm Web App Manifest
+
+Tạo file:
+
+```text
+public/manifest.webmanifest
+```
+
+Nội dung khởi điểm:
+
+```json
+{
+  "name": "Nimbus Player",
+  "short_name": "Nimbus",
+  "description": "Phát video từ Google Drive trong trình duyệt.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f172a",
+  "background_color": "#020617",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}
+```
+
+Sau đó link manifest trong `index.html`:
+
+```html
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0f172a">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+```
+
+### Bước 8.2: Chuẩn bị icon PWA
+
+Tối thiểu cần:
+
+```text
+public/icons/icon-192.png
+public/icons/icon-512.png
+```
+
+Nên dùng icon nền rõ ràng, không quá sát mép, vì Android có thể crop icon theo mask. Nếu muốn làm kỹ hơn, tạo thêm icon riêng cho `maskable`.
+
+### Bước 8.3: Thêm route nhận link được share
+
+Manifest ở trên sẽ mở app tại:
+
+```text
+/share?title=...&text=...&url=...
+```
+
+Router cần đọc lần lượt:
+
+1. `url`
+2. `text`
+3. `title`
+
+Sau đó dùng parser hiện có để nhận diện:
+
+- Link file Drive -> điều hướng sang `/play?id={fileId}`
+- Link folder Drive -> điều hướng sang `/folder?id={folderId}`
+- Không parse được -> về homepage và prefill input nếu muốn
+
+Luồng này nên tái sử dụng logic trong `src/core/drive.ts`, tránh tạo parser riêng cho PWA.
+
+### Bước 8.4: Service Worker và cache
+
+Project đã có `public/sw.js` để proxy stream video từ Google Drive. Khi thêm PWA:
+
+1. Giữ nguyên logic `/api/drive-proxy/...` vì đây là phần phát video.
+2. Có thể cache app shell cơ bản như `/`, JS/CSS build assets, icon và manifest.
+3. Không cache OAuth access token trong cache storage.
+4. Không cache toàn bộ video nếu chưa có chiến lược quota rõ ràng; video Drive có thể rất lớn.
+
+### Bước 8.5: Mobile UX cần kiểm tra
+
+1. Giao diện installable trên Android Chrome.
+2. Player chạy trong display mode `standalone`.
+3. Safe-area padding trên iPhone/Android có notch.
+4. Fullscreen, Picture-in-Picture, touch seek và volume không bị che.
+5. Khi chưa đăng nhập, app giữ lại link được share sau OAuth redirect.
+6. Khi Drive app chỉ cho **Sao chép đường liên kết**, homepage vẫn cho dán link và phát bình thường.
+
+### Bước 8.6: Kiểm tra PWA trên điện thoại
+
+1. Deploy app lên HTTPS domain.
+2. Mở app bằng Chrome Android.
+3. Cài app bằng **Add to Home screen / Install app**.
+4. Mở Google Drive app.
+5. Chọn video -> bấm 3 chấm -> thử **Chia sẻ/Share**.
+6. Nếu thấy Nimbus Player trong share sheet, chọn app và kiểm tra video có mở đúng không.
+7. Nếu không thấy Nimbus Player, dùng **Sao chép đường liên kết** rồi dán vào homepage. Đây vẫn là fallback chính trên mọi thiết bị.
+
+> ⚠️ **Giới hạn mobile**: Web Share Target hoạt động tốt nhất với PWA đã cài trên Android Chrome. iOS/Safari và menu **Mở trong/Open in** của Drive mobile có thể không hỗ trợ website/PWA theo cùng cách, nên không nên xem PWA là thay thế hoàn toàn cho native app.
+
+---
+
+## 9. Quá trình kiểm tra (Testing)
 
 > ⏳ **Chú ý**: Sau khi lưu, có thể mất từ vài phút đến vài giờ để Google cập nhật tích hợp mới này lên hệ thống của họ. Tuy nhiên, nếu đã chờ rất lâu mà vẫn không thấy app, nguyên nhân thường là app chưa được install/authorize với scope `drive.install`, không phải chỉ do propagation.
+
+### 9.1 Kiểm tra Drive web Open with
+
+Luồng này dành cho Google Drive trên trình duyệt desktop:
 
 1. Mở ứng dụng Nimbus Player và đăng nhập Google bằng account muốn dùng trong Drive.
 2. Đảm bảo màn hình consent đã xin cả `drive.readonly` và `drive.install`.
@@ -555,12 +688,25 @@ Sau khi gắn tag và deploy, dữ liệu có thể mất tối đa khoảng 30 
    `https://nimbus-player.vercel.app/?state={"action":"open","ids":["ID_CUA_FILE_VIDEO"]}`
 8. Ứng dụng sẽ tự động parse `state`, trích xuất `FILE_ID` và tiến hành tải video ngay lập tức thông qua luồng xác thực OAuth2 và Service Worker đã thiết lập.
 
+### 9.2 Kiểm tra Drive mobile
+
+Luồng này dành cho app Google Drive trên điện thoại:
+
+1. Mở Drive mobile bằng cùng account đã đăng nhập Nimbus Player.
+2. Chọn video -> bấm 3 chấm.
+3. Thử **Chia sẻ/Share** -> chọn Nimbus Player nếu PWA xuất hiện.
+4. Nếu không xuất hiện, dùng **Sao chép đường liên kết**.
+5. Mở Nimbus Player trên trình duyệt/PWA, dán link và phát video.
+
 ---
 
-## 9. Xử lý sự cố (Troubleshooting)
+## 10. Xử lý sự cố (Troubleshooting)
 
 - **Không thấy app trong menu Open With**: Kiểm tra `VITE_GOOGLE_OAUTH_SCOPES` đã có `https://www.googleapis.com/auth/drive.install`, deploy lại, gỡ quyền OAuth cũ của app trong Google Account, rồi đăng nhập lại.
 - **Đã có `drive.install` nhưng vẫn không thấy**: Đảm bảo file bạn đang chọn đúng MIME type hoặc phần mở rộng đã đăng ký ở Bước 2.5. Tránh dùng `video/*`; hãy dùng MIME type cụ thể như `video/mp4`.
+- **Drive mobile không thấy Nimbus Player trong Mở trong/Open in**: Đây là giới hạn thường gặp của Drive mobile với web app/PWA. Dùng **Chia sẻ/Share** nếu PWA đã cài, hoặc fallback **Sao chép đường liên kết** -> dán vào app.
+- **PWA không xuất hiện trong share sheet Android**: Kiểm tra app đã được cài từ Chrome, `manifest.webmanifest` có `share_target`, manifest được serve đúng MIME type, app đang chạy trên HTTPS và service worker đã register thành công.
+- **Share vào PWA nhưng không mở video**: Kiểm tra route `/share` có đọc cả `url`, `text`, `title`; Drive app có thể đặt link trong `text` thay vì `url`.
 - **Branding báo homepage chưa registered to you**: Verify homepage trong Google Search Console bằng tài khoản Owner/Editor của Google Cloud Project. Nếu dùng `*.vercel.app` không qua được, chuyển sang custom domain riêng và verify bằng DNS TXT.
 - **Data Access báo thiếu scope justification hoặc demo video**: Điền justification cho `drive.readonly` và cung cấp YouTube demo video theo Bước 6.
 - **Không tìm thấy app trên Google Workspace Marketplace**: Kiểm tra Store Listing đã submit và được approve, App visibility là Public, listing không phải Unlisted, Distribution gồm region của bạn, và Installation settings không phải Admin install only nếu bạn muốn user cá nhân cài.
@@ -569,11 +715,13 @@ Sau khi gắn tag và deploy, dữ liệu có thể mất tối đa khoảng 30 
 - **Dùng tài khoản Google Workspace công ty/trường học**: Admin có thể chặn third-party Drive apps hoặc OAuth app chưa được trust. Cần kiểm tra chính sách trong Google Admin Console.
 - **Mở app nhưng báo lỗi không tải được video**: Kiểm tra lại xem ứng dụng đã được cấu hình biến môi trường OAuth đúng trên môi trường deploy chưa (đặc biệt là URI Redirect của Google Client ID có khớp với domain deploy không).
 
-## 10. Tham khảo
+## 11. Tham khảo
 
 - <https://developers.google.com/workspace/drive/api/guides/enable-sdk?hl=vi>
 - <https://developers.google.com/workspace/marketplace/enable-configure-sdk?hl=vi>
 - <https://developers.google.com/workspace/marketplace/create-listing>
+- <https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest/Reference/share_target>
+- <https://web.dev/learn/pwa/os-integration>
 - <https://support.google.com/analytics/answer/9304153?hl=vi>
 - <https://developers.google.com/drive/api/guides/api-specific-auth>
 - <https://support.google.com/cloud/answer/13461325>

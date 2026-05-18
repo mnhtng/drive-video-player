@@ -162,8 +162,8 @@ export default function HomeView({
           <form onSubmit={handleSubmit} className="mt-8 max-w-3xl">
             <Field>
               <FieldLabel htmlFor="drive-input">Google Drive URL hoặc File ID</FieldLabel>
-              <div className="relative">
-                <Link className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <div className="grid gap-2 sm:relative sm:block">
+                <Link className="pointer-events-none absolute left-3 top-1/2 hidden size-4 -translate-y-1/2 text-muted-foreground sm:block" />
                 <Input
                   id="drive-input"
                   type="text"
@@ -173,14 +173,14 @@ export default function HomeView({
                     setError('');
                   }}
                   placeholder="https://drive.google.com/file/d/..."
-                  className="h-12 rounded-lg bg-background pl-10 pr-24 text-sm"
+                  className="h-12 rounded-lg bg-background text-sm sm:pl-10 sm:pr-24"
                   autoFocus
                   aria-invalid={!!error}
                 />
                 <Button
                   type="submit"
                   disabled={!inputValue.trim()}
-                  className="absolute right-1 top-1 h-10 px-3"
+                  className="h-10 px-3 sm:absolute sm:right-1 sm:top-1"
                 >
                   <Play className="fill-current" />
                   Phát
