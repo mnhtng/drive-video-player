@@ -2,10 +2,15 @@ import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
 import {
   BadgeCheck,
   CircleAlert,
+  Code2,
+  FolderOpen,
+  HelpCircle,
   Link,
   LogIn,
   LogOut,
   Play,
+  Scale,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
@@ -90,15 +95,50 @@ export default function HomeView({
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-50 border-b bg-background/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-          <a href="/" onClick={handleHomeClick} className="flex items-center gap-3 cursor-pointer">
-            <img src="/play-icon.png" alt="Logo" className="size-10" />
-            <span className="text-sm font-semibold sm:text-base">{APP_NAME}</span>
+      <header className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-xl supports-[backdrop-filter]:bg-background/75">
+        <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <a
+            href="/"
+            onClick={handleHomeClick}
+            className="flex min-w-0 items-center gap-3 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <span className="header-logo-mark flex size-10 shrink-0 items-center justify-center rounded-lg bg-card">
+              <img src="/play-icon.png" alt="" className="header-logo-icon size-7" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold leading-5 sm:text-base">{APP_NAME}</span>
+              <span className="hidden text-xs font-medium text-muted-foreground sm:block">
+                Google Drive player
+              </span>
+            </span>
           </a>
 
+          <nav aria-label="Liên kết chính" className="hidden items-center gap-1 md:flex">
+            <a
+              href="#drive-browser"
+              className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <FolderOpen className="size-4" />
+              Drive
+            </a>
+            <a
+              href="/privacy.html"
+              className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <ShieldCheck className="size-4" />
+              Quyền riêng tư
+            </a>
+            <a
+              href="/support.html"
+              className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <HelpCircle className="size-4" />
+              Hỗ trợ
+            </a>
+          </nav>
+
           {isAuthenticated ? (
-            <div className="flex items-center gap-2 rounded-lg border bg-card/70 p-1">
+            <div className="flex max-w-[48vw] items-center gap-1 rounded-lg border bg-card/80 p-1 shadow-sm sm:max-w-none sm:gap-2">
               {user ? (
                 <>
                   <img
@@ -107,14 +147,15 @@ export default function HomeView({
                     className="size-8 rounded-full border object-cover"
                     referrerPolicy="no-referrer"
                   />
-                  <span className="hidden max-w-44 truncate px-1 text-sm font-medium text-muted-foreground sm:block">
-                    {user.name}
+                  <span className="hidden min-w-0 px-1 sm:block">
+                    <span className="block max-w-44 truncate text-sm font-medium leading-4">{user.name}</span>
+                    <span className="block text-xs leading-4 text-muted-foreground">Đã đăng nhập</span>
                   </span>
                 </>
               ) : (
                 <span className="px-2 text-sm font-medium text-muted-foreground">Đã đăng nhập</span>
               )}
-              <Button variant="ghost" size="icon" onClick={onLogout} title="Đăng xuất">
+              <Button variant="ghost" size="icon" onClick={onLogout} title="Đăng xuất" aria-label="Đăng xuất">
                 <LogOut />
               </Button>
             </div>
@@ -123,11 +164,12 @@ export default function HomeView({
               onClick={() => onLogin()}
               disabled={!authConfigured}
               size="lg"
-              className="h-10"
+              className="h-10 px-3 sm:px-4"
               title={!authConfigured ? 'Google OAuth chưa được cấu hình' : undefined}
             >
               <LogIn />
-              Đăng nhập Google
+              <span className="hidden sm:inline">Đăng nhập Google</span>
+              <span className="sm:hidden">Đăng nhập</span>
             </Button>
           )}
         </div>
@@ -137,7 +179,7 @@ export default function HomeView({
         <section className="rounded-lg border bg-card p-5 shadow-sm sm:p-8 lg:p-10">
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
             <BadgeCheck className="size-3.5 text-primary" />
-            Google Drive Video Player
+            Trình phát video Google Drive
           </div>
 
           <h1 className="max-w-3xl text-4xl font-semibold tracking-normal text-balance sm:text-5xl lg:text-6xl">
@@ -202,7 +244,7 @@ export default function HomeView({
         {isAuthenticated && token ? (
           <DriveBrowser token={token} folderId={folderId} onPlay={onPlay} />
         ) : (
-          <section className="mt-6 rounded-lg border bg-card p-5 shadow-sm sm:p-6">
+          <section id="drive-browser" className="mt-6 rounded-lg border bg-card p-5 shadow-sm sm:p-6">
             <div>
               <h2 className="text-base font-semibold">Duyệt và tìm kiếm video trong Drive</h2>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -213,14 +255,55 @@ export default function HomeView({
         )}
       </main>
 
-      <footer className="border-t bg-background">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-5 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p>
-            {APP_NAME} mở và phát video được lưu trong Google Drive của người dùng.
-          </p>
-          <a href="/privacy.html" className="font-medium text-foreground underline-offset-4 hover:underline">
-            Chính sách quyền riêng tư
-          </a>
+      <footer className="border-t bg-card/35">
+        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 text-sm text-muted-foreground sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div className="max-w-xl">
+            <a
+              href="/"
+              onClick={handleHomeClick}
+              className="inline-flex items-center gap-3 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <span className="flex size-9 items-center justify-center rounded-lg border bg-background">
+                <img src="/play-icon.png" alt="" className="size-6" />
+              </span>
+              <span className="font-semibold text-foreground">{APP_NAME}</span>
+            </a>
+            <p className="mt-3 leading-6">
+              Mở và phát video được lưu trong Google Drive của người dùng.
+            </p>
+            <p className="mt-3 text-xs">© {new Date().getFullYear()} {APP_NAME}.</p>
+          </div>
+
+          <nav aria-label="Liên kết chân trang" className="grid gap-2 sm:grid-cols-2 lg:min-w-[28rem]">
+            <a
+              href="/privacy.html"
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg px-2 font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <ShieldCheck className="size-4 text-muted-foreground" />
+              Chính sách quyền riêng tư
+            </a>
+            <a
+              href="/terms.html"
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg px-2 font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <Scale className="size-4 text-muted-foreground" />
+              Điều khoản sử dụng
+            </a>
+            <a
+              href="/support.html"
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg px-2 font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <HelpCircle className="size-4 text-muted-foreground" />
+              Hỗ trợ
+            </a>
+            <a
+              href="/developer.html"
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg px-2 font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <Code2 className="size-4 text-muted-foreground" />
+              Nhà phát triển
+            </a>
+          </nav>
         </div>
       </footer>
     </div>

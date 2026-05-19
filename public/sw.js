@@ -2,6 +2,7 @@
 // Service Worker — Google Drive Video Proxy
 // ============================================================
 const PROXY_PREFIX = '/api/drive-proxy/';
+const THUMBNAIL_PROXY_PREFIX = '/api/drive-thumbnail/';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 const AUTH_CACHE_NAME = 'nimbus-player-auth';
 const TOKEN_CACHE_KEY = '/__nimbus-player-access-token';
@@ -158,11 +159,104 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Only intercept our proxy requests
+  if (url.pathname.startsWith(THUMBNAIL_PROXY_PREFIX)) {
+    event.respondWith(handleThumbnailRequest(url));
+    return;
+  }
+
   if (!url.pathname.startsWith(PROXY_PREFIX)) return;
 
   event.respondWith(handleProxyRequest(event.request, url, event));
 });
+
+async function handleThumbnailRequest(url) {
+  const token = await getAccessToken();
+
+  if (!token) {
+    return new Response('Chưa xác thực. Vui lòng đăng nhập.', {
+      status: 401,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
+  const fileId = url.pathname.replace(THUMBNAIL_PROXY_PREFIX, '').split('/')[0];
+
+  if (!fileId) {
+    return new Response('Thiếu File ID.', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
+  const resourceKey = url.searchParams.get('resourcekey') || url.searchParams.get('resourceKey');
+  const metadataUrl = new URL(`${DRIVE_API_BASE}/${fileId}`);
+  metadataUrl.searchParams.set('fields', 'thumbnailLink');
+  metadataUrl.searchParams.set('supportsAllDrives', 'true');
+  if (resourceKey) metadataUrl.searchParams.set('resourceKey', resourceKey);
+
+  try {
+    const metadataResponse = await fetch(metadataUrl.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!metadataResponse.ok) {
+      if (metadataResponse.status === 401 || metadataResponse.status === 403) {
+        self.clients.matchAll().then((clients) => {
+          clients.forEach((client) => {
+            client.postMessage({ type: 'TOKEN_EXPIRED' });
+          });
+        });
+      }
+
+      return new Response('Không thể tải metadata thumbnail.', {
+        status: metadataResponse.status,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+
+    const metadata = await metadataResponse.json();
+    if (!metadata.thumbnailLink) {
+      return new Response('Video không có thumbnail.', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+
+    const imageResponse = await fetch(metadata.thumbnailLink, {
+      headers: { Authorization: `Bearer ${token}` },
+      redirect: 'follow',
+    }).catch(() => null);
+    const fallbackImageResponse = imageResponse?.ok
+      ? null
+      : await fetch(metadata.thumbnailLink, { redirect: 'follow' }).catch(() => null);
+    const thumbnailResponse = imageResponse?.ok ? imageResponse : fallbackImageResponse;
+
+    if (!thumbnailResponse?.ok) {
+      return new Response('Không thể tải thumbnail.', {
+        status: thumbnailResponse?.status || 502,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+
+    const responseHeaders = new Headers();
+    const contentType = thumbnailResponse.headers.get('Content-Type');
+    const contentLength = thumbnailResponse.headers.get('Content-Length');
+    if (contentType) responseHeaders.set('Content-Type', contentType);
+    if (contentLength) responseHeaders.set('Content-Length', contentLength);
+    responseHeaders.set('Cache-Control', 'private, max-age=600');
+
+    return new Response(thumbnailResponse.body, {
+      status: 200,
+      headers: responseHeaders,
+    });
+  } catch (err) {
+    console.error('>>> [SW] Thumbnail fetch error:', err);
+    return new Response('Không thể tải thumbnail từ Google Drive.', {
+      status: 502,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+}
 
 async function handleProxyRequest(request, url, event) {
   const token = await getAccessToken();

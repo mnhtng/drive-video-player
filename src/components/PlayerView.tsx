@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { usePlayer } from '@/hooks/usePlayer';
 import { formatFileSize, formatDuration } from '@/utils/string';
 import { PlaylistPanel } from '@/components/PlaylistPanel';
+import { buildThumbnailUrl } from '@/core/drive';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -412,7 +413,9 @@ export default function PlayerView({ fileId, resourceKey, token, onBack, onPlay 
               ref={videoRef}
               crossOrigin="anonymous"
               preload="metadata"
-              poster={fileMetadata?.thumbnailLink}
+              poster={fileMetadata?.thumbnailLink
+                ? buildThumbnailUrl(fileMetadata.id, resourceKey ?? fileMetadata.resourceKey)
+                : undefined}
               controls
               playsInline
             />

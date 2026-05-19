@@ -71,3 +71,97 @@
     @apply min-h-screen bg-background font-sans text-foreground antialiased;
   }
 }
+
+@layer components {
+  .header-logo-mark {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 10px 28px color-mix(in oklch, var(--primary) 18%, transparent);
+    animation: header-logo-float 3.8s ease-in-out infinite;
+  }
+
+  .header-logo-mark::before {
+    content: "";
+    position: absolute;
+    inset: -55%;
+    z-index: -2;
+    background:
+      conic-gradient(
+        from 0deg,
+        transparent 0deg,
+        color-mix(in oklch, var(--primary) 76%, white 8%) 64deg,
+        color-mix(in oklch, var(--foreground) 36%, var(--primary)) 98deg,
+        transparent 150deg,
+        transparent 360deg
+      );
+    opacity: 0.88;
+    animation: header-logo-spin 2.6s linear infinite;
+  }
+
+  .header-logo-mark::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    z-index: -1;
+    border-radius: calc(var(--radius-lg) - 2px);
+    background:
+      radial-gradient(circle at 35% 25%, color-mix(in oklch, var(--primary) 28%, transparent), transparent 42%),
+      var(--card);
+  }
+
+  .header-logo-icon {
+    position: relative;
+    z-index: 1;
+    filter: drop-shadow(0 3px 8px color-mix(in oklch, var(--primary) 32%, transparent));
+    animation: header-logo-pop 1.9s ease-in-out infinite;
+  }
+
+  @keyframes header-logo-spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
+
+  @keyframes header-logo-float {
+    0%,
+    100% {
+      transform: translateY(0) scale(1);
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 10px 28px color-mix(in oklch, var(--primary) 18%, transparent);
+    }
+
+    50% {
+      transform: translateY(-1px) scale(1.04);
+      box-shadow:
+        0 0 0 1px color-mix(in oklch, var(--primary) 56%, var(--border)),
+        0 14px 34px color-mix(in oklch, var(--primary) 28%, transparent);
+    }
+  }
+
+  @keyframes header-logo-pop {
+    0%,
+    100% {
+      transform: scale(1) rotate(0deg);
+    }
+
+    42% {
+      transform: scale(1.08) rotate(-2deg);
+    }
+
+    62% {
+      transform: scale(0.98) rotate(2deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .header-logo-mark,
+    .header-logo-mark::before,
+    .header-logo-icon {
+      animation: none;
+    }
+  }
+}

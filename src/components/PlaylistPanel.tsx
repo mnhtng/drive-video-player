@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, Play, LayoutList } from 'lucide-react';
+import { Loader2, LayoutList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { VideoThumbnail } from '@/components/VideoThumbnail';
 import {
   DRIVE_BROWSER_FOLDER_VIDEO_LIMIT,
   listFolderVideosPage,
@@ -139,19 +140,7 @@ export function PlaylistPanel({ folderId, token, currentFileId, currentFile, onS
               ].join(' ')}
             >
               <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded bg-black">
-                {file.thumbnailLink ? (
-                  <img
-                    src={file.thumbnailLink}
-                    alt=""
-                    className="size-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  <div className="flex size-full items-center justify-center bg-muted">
-                    <Play className="size-6 text-muted-foreground/30" />
-                  </div>
-                )}
+                <VideoThumbnail file={file} className="size-full object-cover" />
                 {file.videoMediaMetadata?.durationMillis && (
                   <div className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-medium text-white">
                     {formatDuration(file.videoMediaMetadata.durationMillis)}

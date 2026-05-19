@@ -173,6 +173,15 @@ export function buildProxyUrl(fileId: string, fileSize?: string, resourceKey?: s
   return query ? `${base}?${query}` : base;
 }
 
+export function buildThumbnailUrl(fileId: string, resourceKey?: string): string {
+  const base = `/api/drive-thumbnail/${encodeURIComponent(fileId)}`;
+  const params = new URLSearchParams();
+  if (resourceKey) params.set('resourcekey', resourceKey);
+
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
 function escapeDriveQueryValue(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }

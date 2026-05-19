@@ -123,6 +123,8 @@ Trong phần app integrations, chọn loại phù hợp:
   https://nimbus-player.vercel.app
   ```
 
+Không chọn **Editor add-on** cho Nimbus Player. Editor add-on chỉ phù hợp với add-on chạy trong Google Docs, Sheets, Slides hoặc Forms. Nếu email review ghi `Editor Add-on - Rejected`, hãy kiểm tra lại Marketplace SDK và gỡ loại tích hợp Editor add-on nếu đã chọn nhầm.
+
 ### Bước 3.4: Khai báo OAuth scopes trong Marketplace SDK
 
 Trong phần OAuth scopes của Marketplace SDK, nhập đúng các scope mà app dùng trên OAuth consent screen và trong biến môi trường:
@@ -173,24 +175,26 @@ Tên này nên khớp với OAuth consent screen và homepage.
 
 ```text
 Short description:
-Phát video từ Google Drive trong một trình phát gọn, nhanh và riêng tư.
+Phát video từ Google Drive™ trong một trình phát gọn, nhanh và riêng tư.
 ```
 
 Giới hạn short description là 200 ký tự.
 
 ```text
 Detailed description:
-Nimbus Player giúp người dùng mở và phát các file video được lưu trong Google Drive của chính họ. Ứng dụng hỗ trợ mở video bằng Google Drive link, File ID, Drive folder và menu Open with của Google Drive.
+Nimbus Player giúp người dùng mở và phát các file video được lưu trong Google Drive™ của chính họ. Ứng dụng hỗ trợ mở video bằng Google Drive™ link, File ID, Drive folder và menu Open with của Google Drive™.
 
-Ứng dụng đọc metadata và nội dung video đã được người dùng cấp quyền để hiển thị thư viện video, tạo playlist theo thư mục và phát video trực tiếp trong trình duyệt. Nimbus Player không chỉnh sửa, xóa, upload, chia sẻ hoặc chuyển file Google Drive sang dịch vụ lưu trữ khác.
+Ứng dụng đọc metadata và nội dung video đã được người dùng cấp quyền để hiển thị thư viện video, tạo playlist theo thư mục và phát video trực tiếp trong trình duyệt. Nimbus Player không chỉnh sửa, xóa, upload, chia sẻ hoặc chuyển file Google Drive™ sang dịch vụ lưu trữ khác.
 
 Các tính năng chính:
-- Mở video từ Google Drive URL hoặc File ID.
-- Mở video bằng Open with trong Google Drive.
-- Duyệt và tìm kiếm video trong Google Drive.
+- Mở video từ Google Drive™ URL hoặc File ID.
+- Mở video bằng Open with trong Google Drive™.
+- Duyệt và tìm kiếm video trong Google Drive™.
 - Duyệt video theo Drive folder và phát như playlist.
 - Ghi nhớ vị trí xem trong trình duyệt.
 - Hỗ trợ phụ đề và các điều khiển phát video cơ bản.
+
+Google Drive is a trademark of Google LLC. Nimbus Player is not affiliated with or endorsed by Google LLC.
 ```
 
 ```text
@@ -204,7 +208,28 @@ Nếu có field **Pricing**, chọn:
 Free of charge
 ```
 
-### Bước 4.3: Graphic Assets
+### Bước 4.3: Developer Information
+
+Điền thông tin developer bằng tên thật hoặc tên tổ chức thật, không dùng lại tên app nếu Nimbus Player không phải tên pháp lý của developer.
+
+```text
+Developer Name:
+Do Manh Tung
+```
+
+```text
+Developer Website URL:
+https://nimbus-player.vercel.app/developer.html
+```
+
+```text
+Developer Email:
+domanhtung1404@gmail.com
+```
+
+Trang Developer Website phải có thông tin liên hệ và mô tả rõ developer là ai, không chỉ trỏ về homepage app.
+
+### Bước 4.4: Graphic Assets
 
 Chuẩn bị asset theo yêu cầu của Google:
 
@@ -228,7 +253,7 @@ Screenshot nên thể hiện rõ app tích hợp với Google Drive:
 4. Google Drive menu **Open with -> Nimbus Player**.
 5. Playlist theo Drive folder nếu muốn reviewer thấy lý do dùng `drive.readonly`.
 
-### Bước 4.4: Support Links
+### Bước 4.5: Support Links
 
 Các link bắt buộc:
 
@@ -260,7 +285,7 @@ https://nimbus-player.vercel.app
 
 Không cần **Admin config** nếu app không yêu cầu admin cấu hình domain-level.
 
-### Bước 4.5: Distribution
+### Bước 4.6: Distribution
 
 Nếu muốn public toàn cầu:
 
@@ -271,7 +296,7 @@ All regions
 
 Nếu chỉ chọn một số region, người dùng ngoài region đó sẽ không thấy app trong Marketplace search và có thể không mở được direct listing URL.
 
-### Bước 4.6: Submit for review
+### Bước 4.7: Submit for review
 
 Sau khi điền xong:
 
@@ -288,7 +313,7 @@ Sau khi điền xong:
 4. Theo dõi trạng thái ở đầu trang Store Listing.
 5. Theo dõi email ở **Developer email** vì Google sẽ gửi kết quả review hoặc yêu cầu sửa vào email này.
 
-### Bước 4.7: Trả lời email review từ GWM Reviews
+### Bước 4.8: Trả lời email review từ GWM Reviews
 
 Khi Google Workspace Marketplace Review Team bắt đầu review, họ có thể gửi email yêu cầu:
 
@@ -343,7 +368,7 @@ Thanks,
 {YOUR_NAME}
 ```
 
-### Bước 4.8: Vì sao search Marketplace chưa thấy app?
+### Bước 4.9: Vì sao search Marketplace chưa thấy app?
 
 Nimbus Player sẽ chưa xuất hiện trong kết quả tìm kiếm nếu rơi vào một trong các trạng thái sau:
 

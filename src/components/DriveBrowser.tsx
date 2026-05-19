@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { VideoThumbnail } from '@/components/VideoThumbnail';
 import {
   DRIVE_BROWSER_FOLDER_VIDEO_LIMIT,
   DRIVE_BROWSER_VIDEO_LIMIT,
@@ -190,7 +191,7 @@ export default function DriveBrowser({ token, folderId, onPlay }: DriveBrowserPr
   };
 
   return (
-    <section className="mt-6 grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+    <section id="drive-browser" className="mt-6 grid gap-4 scroll-mt-24 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <aside className="rounded-lg border bg-card p-4">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <FolderOpen className="size-4 text-primary" />
@@ -288,20 +289,12 @@ export default function DriveBrowser({ token, folderId, onPlay }: DriveBrowserPr
                   className="grid w-full grid-cols-[7rem_minmax(0,1fr)] gap-3 px-3 py-3 text-left transition hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:outline-none sm:grid-cols-[10rem_minmax(0,1fr)_auto] sm:px-4"
                 >
                   <div className="relative aspect-video overflow-hidden rounded-md bg-black">
-                    {file.thumbnailLink ? (
-                      <img
-                        src={file.thumbnailLink}
-                        alt=""
-                        className="size-full object-cover"
-                        loading={index === 0 ? 'eager' : 'lazy'}
-                        fetchPriority={index === 0 ? 'high' : 'auto'}
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="flex size-full items-center justify-center bg-muted">
-                        <Play className="size-7 text-muted-foreground/40" />
-                      </div>
-                    )}
+                    <VideoThumbnail
+                      file={file}
+                      className="size-full object-cover"
+                      loading={index === 0 ? 'eager' : 'lazy'}
+                      fetchPriority={index === 0 ? 'high' : 'auto'}
+                    />
                     {file.videoMediaMetadata?.durationMillis ? (
                       <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
                         {formatDuration(file.videoMediaMetadata.durationMillis)}
