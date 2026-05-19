@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nimbus Player</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="drive-reference.js" defer></script>
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <img src="icons/128.png" alt="" class="popup-logo">
+        <div>
+          <h1>Nimbus Player</h1>
+          <p>Mở nhanh video từ Google Drive</p>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="section-header">
+          <h2>Tab hiện tại</h2>
+        </div>
+        <p class="status" id="tabStatus">Đang kiểm tra tab...</p>
+        <p class="file-name" id="fileName" hidden></p>
+        <button type="button" class="primary-button" id="openCurrentButton" disabled>
+          Mở trong Nimbus Player
+        </button>
+      </section>
+
+      <footer>
+        <button type="button" class="link-button" id="openAppButton">Mở Nimbus Player</button>
+      </footer>
+    </main>
+  </body>
+</html>

@@ -340,10 +340,19 @@ gdrive-player/
 │
 ├── extension/                     # Chrome Extension (separate)
 │   ├── manifest.json
+│   ├── drive-reference.js       # Parse Drive URL/fileId + build player URL
 │   ├── content-script.js         # Inject button vào Drive
 │   ├── background.js
 │   ├── popup.html
+│   ├── popup.js
+│   ├── popup.css
 │   └── icons/
+│       ├── 16.png
+│       ├── 32.png
+│       ├── 48.png
+│       └── 128.png
+├── scripts/
+│   └── check-extension.mjs       # Validate extension manifest/assets/scripts
 │
 └── README.md
 ```

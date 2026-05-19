@@ -111,6 +111,10 @@ Users can open a Drive folder and let Nimbus Player list the video files inside 
 
 A browser extension can add an "Open in Player" action to Google Drive. When selected, the extension extracts the Drive file ID and opens the player in a new tab.
 
+## Chrome Extension
+
+The unpacked Chrome extension lives in [`extension`](./extension). It injects an **Open in Nimbus Player** button on Google Drive video pages and selected video files, includes a popup for opening the current file, and provides a context-menu shortcut where Chrome's native context menu is available.
+
 ## Feature Summary
 
 | Area | Capabilities |
