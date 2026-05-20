@@ -195,8 +195,12 @@ async function handleThumbnailRequest(url) {
   if (resourceKey) metadataUrl.searchParams.set('resourceKey', resourceKey);
 
   try {
+    const metadataHeaders = { Authorization: `Bearer ${token}` };
+    if (resourceKey) {
+      metadataHeaders['X-Goog-Drive-Resource-Keys'] = `${fileId}/${resourceKey}`;
+    }
     const metadataResponse = await fetch(metadataUrl.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: metadataHeaders,
     });
 
     if (!metadataResponse.ok) {
@@ -222,33 +226,11 @@ async function handleThumbnailRequest(url) {
       });
     }
 
-    const imageResponse = await fetch(metadata.thumbnailLink, {
-      headers: { Authorization: `Bearer ${token}` },
-      redirect: 'follow',
-    }).catch(() => null);
-    const fallbackImageResponse = imageResponse?.ok
-      ? null
-      : await fetch(metadata.thumbnailLink, { redirect: 'follow' }).catch(() => null);
-    const thumbnailResponse = imageResponse?.ok ? imageResponse : fallbackImageResponse;
-
-    if (!thumbnailResponse?.ok) {
-      return new Response('Không thể tải thumbnail.', {
-        status: thumbnailResponse?.status || 502,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    }
-
-    const responseHeaders = new Headers();
-    const contentType = thumbnailResponse.headers.get('Content-Type');
-    const contentLength = thumbnailResponse.headers.get('Content-Length');
-    if (contentType) responseHeaders.set('Content-Type', contentType);
-    if (contentLength) responseHeaders.set('Content-Length', contentLength);
-    responseHeaders.set('Cache-Control', 'private, max-age=600');
-
-    return new Response(thumbnailResponse.body, {
-      status: 200,
-      headers: responseHeaders,
-    });
+    // Redirect to the pre-signed thumbnailLink URL.  Letting the browser
+    // follow the redirect avoids CORS issues that arise when the SW
+    // fetch()-es lh3.googleusercontent.com (the CDN rejects the
+    // Authorization header and can rate-limit with 429).
+    return Response.redirect(metadata.thumbnailLink, 302);
   } catch (err) {
     console.error('>>> [SW] Thumbnail fetch error:', err);
     return new Response('Không thể tải thumbnail từ Google Drive.', {
@@ -294,6 +276,11 @@ async function handleProxyRequest(request, url, event) {
   const fetchHeaders = new Headers({
     Authorization: `Bearer ${token}`,
   });
+
+  // Required for accessing files shared via links with resource keys
+  if (resourceKey) {
+    fetchHeaders.set('X-Goog-Drive-Resource-Keys', `${fileId}/${resourceKey}`);
+  }
 
   const rangeHeader = request.headers.get('Range');
   const normalizedRange = normalizeRangeHeader(rangeHeader, totalSize);

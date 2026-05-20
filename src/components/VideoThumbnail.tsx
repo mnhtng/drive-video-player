@@ -3,7 +3,7 @@ import { Play } from 'lucide-react';
 import { buildThumbnailUrl, type DriveFile } from '@/core/drive';
 import { cn } from '@/lib/utils';
 
-type ThumbnailSource = 'proxy' | 'direct' | 'fallback';
+type ThumbnailSource = 'direct' | 'proxy' | 'fallback';
 
 interface VideoThumbnailProps {
   file: Pick<DriveFile, 'id' | 'name' | 'resourceKey' | 'thumbnailLink'>;
@@ -21,15 +21,17 @@ export function VideoThumbnail({
   const thumbnailKey = `${file.id}:${file.resourceKey ?? ''}:${file.thumbnailLink ?? ''}`;
   const [sourceState, setSourceState] = useState<{ key: string; source: ThumbnailSource }>({
     key: thumbnailKey,
-    source: 'proxy',
+    source: 'direct',
   });
-  const source = sourceState.key === thumbnailKey ? sourceState.source : 'proxy';
+  const source = sourceState.key === thumbnailKey ? sourceState.source : 'direct';
 
+  // Try direct thumbnailLink first (pre-signed, no CORS for <img> tags),
+  // fall back to SW proxy, then to a placeholder icon.
   const src = file.thumbnailLink
-    ? source === 'proxy'
-      ? buildThumbnailUrl(file.id, file.resourceKey)
-      : source === 'direct'
-        ? file.thumbnailLink
+    ? source === 'direct'
+      ? file.thumbnailLink
+      : source === 'proxy'
+        ? buildThumbnailUrl(file.id, file.resourceKey)
         : null
     : null;
 
@@ -52,7 +54,7 @@ export function VideoThumbnail({
       onError={() => {
         setSourceState({
           key: thumbnailKey,
-          source: source === 'proxy' ? 'direct' : 'fallback',
+          source: source === 'direct' ? 'proxy' : 'fallback',
         });
       }}
     />

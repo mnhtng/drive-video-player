@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Plyr from 'plyr';
 import {
   buildProxyUrl,
-  buildThumbnailUrl,
+
   fetchDriveFileText,
   getFileMetadata,
   listFolderSubtitleFiles,
@@ -728,9 +728,7 @@ export function usePlayer({
         const playerMedia = setPlayerSource(activePlayer, {
           type: 'video',
           title: metadata.name,
-          poster: metadata.thumbnailLink
-            ? buildThumbnailUrl(metadata.id, resourceKey ?? metadata.resourceKey)
-            : undefined,
+          poster: metadata.thumbnailLink || undefined,
           sources: videoSources.map((source) => ({
             src: source.src,
             size: source.quality ?? undefined,

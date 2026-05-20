@@ -316,8 +316,13 @@ export async function getFileMetadata(
 
       if (resourceKey) params.set('resourceKey', resourceKey);
 
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (resourceKey) {
+        headers['X-Goog-Drive-Resource-Keys'] = `${fileId}/${resourceKey}`;
+      }
+
       const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
       });
 
       if (!res.ok) {
@@ -400,8 +405,13 @@ export async function fetchDriveFileText(
 
       if (resourceKey) params.set('resourceKey', resourceKey);
 
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (resourceKey) {
+        headers['X-Goog-Drive-Resource-Keys'] = `${fileId}/${resourceKey}`;
+      }
+
       const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
       });
 
       if (!res.ok) return null;
