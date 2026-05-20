@@ -211,8 +211,8 @@ export default function PlayerView({ fileId, resourceKey, token, onBack, onPlay 
   };
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
-      <header className="grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b bg-background/90 px-3 backdrop-blur-xl sm:px-5">
+    <div className="safe-area-top safe-area-bottom flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
+      <header className="safe-area-x grid min-h-16 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b bg-background/90 backdrop-blur-xl">
         <Button onClick={onBack} variant="ghost" size="sm" title="Quay về trang chủ">
           <ArrowLeft />
           <span className="hidden sm:inline">Quay lại</span>
@@ -454,7 +454,7 @@ export default function PlayerView({ fileId, resourceKey, token, onBack, onPlay 
         {parentFolderId && showPlaylist && (
           <aside
             className={[
-              'fixed inset-y-0 right-0 z-30 flex h-[100dvh] w-[min(22rem,calc(100vw-1rem))] shrink-0 flex-col border-l bg-card shadow-2xl',
+              'safe-area-top safe-area-bottom fixed inset-y-0 right-0 z-30 flex h-[100dvh] w-[min(22rem,calc(100vw-1rem))] shrink-0 flex-col border-l bg-card shadow-2xl',
               'md:relative md:z-auto md:h-full md:w-80 md:shadow-none',
             ].join(' ')}
           >

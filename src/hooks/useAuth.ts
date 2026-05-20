@@ -33,13 +33,11 @@ export function useAuth() {
 
   // Register Service Worker
   useEffect(() => {
-    if (!authConfigured) return;
-
     if (!swRegistered.current) {
       registerServiceWorker();
       swRegistered.current = true;
     }
-  }, [authConfigured]);
+  }, []);
 
   // Sync token to SW and fetch user info whenever token changes
   useEffect(() => {

@@ -1,7 +1,7 @@
 // ============================================================
 // Handles: ?id=, ?url=, ?state= (Drive Open With)
 // ============================================================
-import { extractDriveFileReference } from '@/core/drive';
+import { extractDriveFileReference, extractFolderId } from '@/core/drive';
 
 export type RouteAction = 'home' | 'play' | 'folder';
 
@@ -14,6 +14,10 @@ export interface ParsedRoute {
   fileIds?: string[];
   /** Resource keys from Google Drive "Open With" state, keyed by file ID */
   resourceKeys?: Record<string, string>;
+  /** Canonical URL to replace the current history entry after parsing entry routes such as /share. */
+  canonicalUrl?: string;
+  /** Raw shared text when /share could not extract a Drive reference. */
+  sharedInput?: string;
 }
 
 interface DriveOpenState {
@@ -55,6 +59,17 @@ function normalizeStringRecord(value: unknown): Record<string, string> | undefin
   return Object.fromEntries(entries);
 }
 
+function getShareInput(params: URLSearchParams): string {
+  return [
+    params.get('url'),
+    params.get('text'),
+    params.get('title'),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join('\n');
+}
+
 /**
  * Parse the current URL to determine the action
  *
@@ -68,6 +83,33 @@ function normalizeStringRecord(value: unknown): Record<string, string> | undefin
 export function parseCurrentRoute(): ParsedRoute {
   const params = new URLSearchParams(window.location.search);
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+
+  if (pathname === '/share') {
+    const shareInput = getShareInput(params);
+    const folderId = extractFolderId(shareInput);
+    if (folderId) {
+      return {
+        action: 'folder',
+        folderId,
+        canonicalUrl: buildFolderUrl(folderId),
+      };
+    }
+
+    const reference = extractDriveFileReference(shareInput);
+    if (reference) {
+      return {
+        action: 'play',
+        fileId: reference.fileId,
+        resourceKey: reference.resourceKey,
+        canonicalUrl: buildPlayUrl(reference.fileId, reference.resourceKey),
+      };
+    }
+
+    return {
+      action: 'home',
+      sharedInput: shareInput || undefined,
+    };
+  }
 
   // Check for Google Drive "Open With" state parameter
   const state = params.get('state');

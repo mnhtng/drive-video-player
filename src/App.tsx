@@ -14,6 +14,20 @@ function App() {
   // Guard: once a pending play is scheduled, block any competing setRoute(home)
   const pendingPlayScheduled = useRef(false);
 
+  const applyParsedRoute = useCallback((nextRoute: ParsedRoute) => {
+    const { canonicalUrl, ...routeWithoutCanonical } = nextRoute;
+
+    if (canonicalUrl) {
+      const currentUrl = new URL(window.location.href);
+      const nextUrl = new URL(canonicalUrl, window.location.origin);
+      if (currentUrl.pathname !== nextUrl.pathname || currentUrl.search !== nextUrl.search) {
+        window.history.replaceState({}, '', nextUrl.toString());
+      }
+    }
+
+    setRoute(routeWithoutCanonical);
+  }, []);
+
   const handlePlay = useCallback((fileId: string, resourceKey?: string) => {
     // Update URL without full reload
     const url = new URL(buildPlayUrl(fileId, resourceKey));
@@ -52,7 +66,7 @@ function App() {
         pendingPlayScheduled.current = true;
         window.history.replaceState({}, '', pendingLocation);
         window.setTimeout(() => {
-          setRoute(parseCurrentRoute());
+          applyParsedRoute(parseCurrentRoute());
           pendingPlayScheduled.current = false;
         }, 0);
         return;
@@ -74,19 +88,19 @@ function App() {
     // Only set route if no pending play is about to fire
     if (!pendingPlayScheduled.current) {
       window.setTimeout(() => {
-        setRoute(parseCurrentRoute());
+        applyParsedRoute(parseCurrentRoute());
       }, 0);
     }
-  }, [auth.isLoading, auth.isAuthenticated, handlePlay]);
+  }, [auth.isLoading, auth.isAuthenticated, applyParsedRoute, handlePlay]);
 
   // Listen for browser back/forward
   useEffect(() => {
     const handlePopState = () => {
-      setRoute(parseCurrentRoute());
+      applyParsedRoute(parseCurrentRoute());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [applyParsedRoute]);
 
   // Loading screen
   if (auth.isLoading) {
@@ -106,7 +120,7 @@ function App() {
         <div className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
           <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-lg border bg-card p-8 text-center shadow-sm">
             <button type="button" onClick={handleBack} className="flex items-center gap-3 cursor-pointer">
-              <img src="/play-icon.png" alt="Logo" className="size-10" />
+              <img src="/icons/play-icon.png" alt="Logo" className="size-10" />
               <span className="font-semibold">{APP_NAME}</span>
             </button>
             <h2 className="text-xl font-semibold">Đăng nhập để phát video</h2>
@@ -158,6 +172,7 @@ function App() {
       onPlay={handlePlay}
       onBrowseFolder={handleBrowseFolder}
       folderId={route.action === 'folder' ? route.folderId : undefined}
+      initialInput={route.action === 'home' ? route.sharedInput : undefined}
     />
   );
 }

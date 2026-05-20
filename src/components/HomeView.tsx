@@ -3,6 +3,7 @@ import {
   BadgeCheck,
   CircleAlert,
   Code2,
+  Download,
   FolderOpen,
   HelpCircle,
   Link,
@@ -32,6 +33,12 @@ interface HomeViewProps {
   onPlay: (fileId: string, resourceKey?: string) => void;
   onBrowseFolder: (folderId: string) => void;
   folderId?: string;
+  initialInput?: string;
+}
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
 export default function HomeView({
@@ -46,9 +53,37 @@ export default function HomeView({
   onPlay,
   onBrowseFolder,
   folderId,
+  initialInput,
 }: HomeViewProps) {
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(() => initialInput ?? '');
   const [error, setError] = useState('');
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    if (!initialInput) return;
+    queueMicrotask(() => {
+      setInputValue(initialInput);
+    });
+  }, [initialInput]);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setInstallPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
 
   // Prefetch video metadata — only when input looks like a complete reference
   useEffect(() => {
@@ -93,17 +128,26 @@ export default function HomeView({
     onHome();
   };
 
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+
+    const promptEvent = installPrompt;
+    setInstallPrompt(null);
+    await promptEvent.prompt();
+    await promptEvent.userChoice.catch(() => undefined);
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-xl supports-[backdrop-filter]:bg-background/75">
-        <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <div className="safe-area-x mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 py-3">
           <a
             href="/"
             onClick={handleHomeClick}
             className="flex min-w-0 items-center gap-3 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <span className="header-logo-mark flex size-10 shrink-0 items-center justify-center rounded-lg bg-card">
-              <img src="/play-icon.png" alt="" className="header-logo-icon size-7" />
+              <img src="/icons/play-icon.png" alt="" className="header-logo-icon size-7" />
             </span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold leading-5 sm:text-base">{APP_NAME}</span>
@@ -136,6 +180,20 @@ export default function HomeView({
               Hỗ trợ
             </a>
           </nav>
+
+          {installPrompt ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={handleInstallClick}
+              className="ml-auto h-10 px-3 md:ml-0"
+              title="Cài ứng dụng"
+            >
+              <Download />
+              <span className="hidden lg:inline">Cài ứng dụng</span>
+            </Button>
+          ) : null}
 
           {isAuthenticated ? (
             <div className="flex max-w-[48vw] items-center gap-1 rounded-lg border bg-card/80 p-1 shadow-sm sm:max-w-none sm:gap-2">
@@ -175,7 +233,7 @@ export default function HomeView({
         </div>
       </header>
 
-      <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl items-center gap-4 px-4 py-6 sm:px-6 lg:py-12">
+      <main className="safe-area-x safe-area-bottom mx-auto min-h-[calc(100vh-4rem)] max-w-7xl items-center gap-4 py-6 lg:py-12">
         <section className="rounded-lg border bg-card p-5 shadow-sm sm:p-8 lg:p-10">
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
             <BadgeCheck className="size-3.5 text-primary" />
@@ -256,7 +314,7 @@ export default function HomeView({
       </main>
 
       <footer className="border-t bg-card/35">
-        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 text-sm text-muted-foreground sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="safe-area-x safe-area-bottom mx-auto grid max-w-7xl gap-6 py-8 text-sm text-muted-foreground lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div className="max-w-xl">
             <a
               href="/"
@@ -264,7 +322,7 @@ export default function HomeView({
               className="inline-flex items-center gap-3 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <span className="flex size-9 items-center justify-center rounded-lg border bg-background">
-                <img src="/play-icon.png" alt="" className="size-6" />
+                <img src="/icons/play-icon.png" alt="" className="size-6" />
               </span>
               <span className="font-semibold text-foreground">{APP_NAME}</span>
             </a>

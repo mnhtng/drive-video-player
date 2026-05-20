@@ -6,17 +6,49 @@ const THUMBNAIL_PROXY_PREFIX = '/api/drive-thumbnail/';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 const AUTH_CACHE_NAME = 'nimbus-player-auth';
 const TOKEN_CACHE_KEY = '/__nimbus-player-access-token';
+const TOKEN_CACHE_TTL_MS = 50 * 60 * 1000;
+const SHELL_CACHE_NAME = 'nimbus-player-shell-v1';
 const STREAM_CACHE_NAME = 'nimbus-player-stream-v1';
 const STREAM_CHUNK_SIZE = 2 * 1024 * 1024;
 const MAX_STREAM_CACHE_ENTRIES = 30;
+const SHELL_ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icons/play-icon.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/maskable-512.png',
+  '/privacy.html',
+  '/terms.html',
+  '/support.html',
+  '/developer.html',
+];
+const CURRENT_CACHE_NAMES = new Set([
+  AUTH_CACHE_NAME,
+  SHELL_CACHE_NAME,
+  STREAM_CACHE_NAME,
+]);
 
 // Token storage (received from main thread)
 let accessToken = null;
+let accessTokenExpiresAt = 0;
 
 async function readCachedToken() {
   const cache = await caches.open(AUTH_CACHE_NAME);
   const response = await cache.match(TOKEN_CACHE_KEY);
   if (!response) return null;
+
+  const expiresAt = Number(response.headers.get('X-Nimbus-Token-Expires-At') || '0');
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    await cache.delete(TOKEN_CACHE_KEY);
+    await clearStreamCache();
+    accessToken = null;
+    accessTokenExpiresAt = 0;
+    return null;
+  }
+
+  accessTokenExpiresAt = expiresAt;
   return response.text();
 }
 
@@ -27,21 +59,29 @@ async function writeCachedToken(token) {
   }
 
   accessToken = token;
+  accessTokenExpiresAt = Date.now() + TOKEN_CACHE_TTL_MS;
   const cache = await caches.open(AUTH_CACHE_NAME);
   await cache.put(TOKEN_CACHE_KEY, new Response(token, {
-    headers: { 'Content-Type': 'text/plain' },
+    headers: {
+      'Content-Type': 'text/plain',
+      'Cache-Control': 'no-store',
+      'X-Nimbus-Token-Expires-At': String(accessTokenExpiresAt),
+    },
   }));
 }
 
 async function clearCachedToken() {
   accessToken = null;
+  accessTokenExpiresAt = 0;
   const cache = await caches.open(AUTH_CACHE_NAME);
   await cache.delete(TOKEN_CACHE_KEY);
   await clearStreamCache();
 }
 
 async function getAccessToken() {
-  if (accessToken) return accessToken;
+  if (accessToken && accessTokenExpiresAt > Date.now()) return accessToken;
+  accessToken = null;
+  accessTokenExpiresAt = 0;
   accessToken = await readCachedToken();
   return accessToken;
 }
@@ -155,6 +195,71 @@ self.addEventListener('message', (event) => {
   }
 });
 
+async function cacheAppShell() {
+  const cache = await caches.open(SHELL_CACHE_NAME);
+  await Promise.all(
+    SHELL_ASSETS.map((asset) => cache.add(asset).catch(() => undefined))
+  );
+}
+
+function shouldHandleShellRequest(request, url) {
+  if (request.method !== 'GET') return false;
+  if (url.origin !== self.location.origin) return false;
+  if (url.pathname.startsWith(PROXY_PREFIX)) return false;
+  if (url.pathname.startsWith(THUMBNAIL_PROXY_PREFIX)) return false;
+  if (url.pathname.startsWith('/api/')) return false;
+
+  return (
+    request.mode === 'navigate' ||
+    SHELL_ASSETS.includes(url.pathname) ||
+    url.pathname.startsWith('/assets/')
+  );
+}
+
+async function handleNavigationRequest(request) {
+  const cache = await caches.open(SHELL_CACHE_NAME);
+
+  try {
+    const response = await fetch(request);
+    if (response.ok && request.url === self.location.origin + '/') {
+      try {
+        await cache.put('/', response.clone());
+      } catch {
+        // Shell caching is opportunistic.
+      }
+    }
+    return response;
+  } catch {
+    return (
+      await cache.match(request) ||
+      await cache.match('/index.html') ||
+      await cache.match('/') ||
+      new Response('Nimbus Player dang ngoai tuyen.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      })
+    );
+  }
+}
+
+async function handleShellAssetRequest(request) {
+  const cache = await caches.open(SHELL_CACHE_NAME);
+  const cachedResponse = await cache.match(request);
+
+  const networkResponsePromise = fetch(request).then(async (response) => {
+    if (response.ok) {
+      try {
+        await cache.put(request, response.clone());
+      } catch {
+        // Runtime asset caching is opportunistic.
+      }
+    }
+    return response;
+  });
+
+  return cachedResponse || networkResponsePromise.catch(() => Response.error());
+}
+
 // Intercept fetch requests
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
@@ -164,7 +269,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (!url.pathname.startsWith(PROXY_PREFIX)) return;
+  if (!url.pathname.startsWith(PROXY_PREFIX)) {
+    if (shouldHandleShellRequest(event.request, url)) {
+      event.respondWith(
+        event.request.mode === 'navigate'
+          ? handleNavigationRequest(event.request)
+          : handleShellAssetRequest(event.request)
+      );
+    }
+    return;
+  }
 
   event.respondWith(handleProxyRequest(event.request, url, event));
 });
@@ -407,12 +521,27 @@ async function handleProxyRequest(request, url, event) {
   }
 }
 
-// Install — skip waiting to activate immediately
-self.addEventListener('install', () => {
-  self.skipWaiting();
+// Install - cache the basic PWA shell and activate immediately.
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    await cacheAppShell();
+    await self.skipWaiting();
+  })());
 });
 
-// Activate — claim all clients
+// Activate - clean old app caches and claim all clients.
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    const cacheNames = await caches.keys();
+    await Promise.all(
+      cacheNames.map((cacheName) => {
+        if (cacheName.startsWith('nimbus-player-') && !CURRENT_CACHE_NAMES.has(cacheName)) {
+          return caches.delete(cacheName);
+        }
+
+        return undefined;
+      })
+    );
+    await self.clients.claim();
+  })());
 });

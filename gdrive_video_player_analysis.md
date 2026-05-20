@@ -432,17 +432,3 @@ gdrive-player/
 
 > [!NOTE]
 > PWA không làm website xuất hiện trong menu **Mở trong/Open in** của Google Drive mobile như native app. PWA chủ yếu cải thiện luồng **Share/Chia sẻ link** và trải nghiệm mở app trên điện thoại.
-
----
-
-## 5. Yêu Cầu Trước Khi Bắt Đầu
-
-> [!IMPORTANT]
->
-> ### Cần xác nhận
->
-> 1. **Google Cloud Project**: Bạn đã có chưa? Cần tạo OAuth Client ID
-> 2. **Domain deploy**: Bạn có domain để deploy không? (cần cho "Open With" API)
->    - Nếu chưa, có thể dùng Vercel/Netlify miễn phí
-> 3. **Bắt đầu Phase nào?** Đề xuất Phase 1 trước (core player + paste link)
-> 4. **Project location**: Tạo ở đâu? Đề xuất thư mục riêng (không trong React Native project)

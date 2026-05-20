@@ -38,6 +38,7 @@ export interface DriveFileReference {
 
 const DEFAULT_FILE_FIELDS = 'id,name,mimeType,resourceKey,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
 const FOLDER_VIDEO_FIELDS = 'id,name,mimeType,resourceKey,size,thumbnailLink,videoMediaMetadata,createdTime,modifiedTime,parents';
+const DRIVE_URL_PATTERN = /https?:\/\/(?:drive|docs)\.google\.com\/[^\s<>"']+/gi;
 
 interface TimedCacheEntry<T> {
   expiresAt: number;
@@ -87,6 +88,41 @@ function getCachedPromise<T>(
   return promise;
 }
 
+function stripSharedUrlBoundary(value: string): string {
+  return value.replace(/[),.;\]]+$/g, '');
+}
+
+function buildDriveInputCandidates(input: string): string[] {
+  const trimmed = input.trim();
+  if (!trimmed) return [];
+
+  const candidates = new Set<string>([trimmed]);
+
+  try {
+    const decoded = decodeURIComponent(trimmed);
+    if (decoded && decoded !== trimmed) candidates.add(decoded);
+  } catch {
+    // Share target payloads are not always URI encoded.
+  }
+
+  for (const source of Array.from(candidates)) {
+    const matches = source.matchAll(DRIVE_URL_PATTERN);
+    for (const match of matches) {
+      const url = stripSharedUrlBoundary(match[0]);
+      candidates.add(url);
+
+      try {
+        const decoded = decodeURIComponent(url);
+        if (decoded && decoded !== url) candidates.add(stripSharedUrlBoundary(decoded));
+      } catch {
+        // Keep the original URL candidate.
+      }
+    }
+  }
+
+  return Array.from(candidates);
+}
+
 export function clearDriveCaches(): void {
   metadataCache.clear();
   folderVideosCache.clear();
@@ -107,27 +143,27 @@ export function clearDriveCaches(): void {
 export function extractDriveFileReference(input: string): DriveFileReference | null {
   if (!input) return null;
 
-  const trimmed = input.trim();
+  for (const candidate of buildDriveInputCandidates(input)) {
+    // Already a raw file ID (alphanumeric + hyphens + underscores, typically 25-60 chars)
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(candidate)) {
+      return { fileId: candidate };
+    }
 
-  // Already a raw file ID (alphanumeric + hyphens + underscores, typically 25-60 chars)
-  if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
-    return { fileId: trimmed };
-  }
+    // Try URL patterns
+    try {
+      const url = new URL(candidate);
+      const resourceKey = url.searchParams.get('resourcekey') || url.searchParams.get('resourceKey') || undefined;
 
-  // Try URL patterns
-  try {
-    const url = new URL(trimmed);
-    const resourceKey = url.searchParams.get('resourcekey') || url.searchParams.get('resourceKey') || undefined;
+      // Pattern: /file/d/{fileId}/ or /d/{fileId}/
+      const pathMatch = url.pathname.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]+)/);
+      if (pathMatch) return { fileId: pathMatch[1], resourceKey };
 
-    // Pattern: /file/d/{fileId}/ or /d/{fileId}/
-    const pathMatch = url.pathname.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]+)/);
-    if (pathMatch) return { fileId: pathMatch[1], resourceKey };
-
-    // Pattern: ?id={fileId}
-    const idParam = url.searchParams.get('id');
-    if (idParam) return { fileId: idParam, resourceKey };
-  } catch {
-    return null;
+      // Pattern: ?id={fileId}
+      const idParam = url.searchParams.get('id');
+      if (idParam) return { fileId: idParam, resourceKey };
+    } catch {
+      // Try the next candidate.
+    }
   }
 
   return null;
@@ -140,19 +176,19 @@ export function extractFileId(input: string): string | null {
 export function extractFolderId(input: string): string | null {
   if (!input) return null;
 
-  const trimmed = input.trim();
+  for (const candidate of buildDriveInputCandidates(input)) {
+    try {
+      const url = new URL(candidate);
+      const folderMatch = url.pathname.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+      if (folderMatch) return folderMatch[1];
 
-  try {
-    const url = new URL(trimmed);
-    const folderMatch = url.pathname.match(/\/folders\/([a-zA-Z0-9_-]+)/);
-    if (folderMatch) return folderMatch[1];
-
-    if (url.pathname.includes('/drive/')) {
-      const idParam = url.searchParams.get('id');
-      if (idParam) return idParam;
+      if (url.pathname.includes('/drive/')) {
+        const idParam = url.searchParams.get('id');
+        if (idParam) return idParam;
+      }
+    } catch {
+      // Try the next candidate.
     }
-  } catch {
-    return null;
   }
 
   return null;
