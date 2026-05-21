@@ -41,6 +41,31 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+interface InstallInfo {
+  isIOS: boolean;
+  isStandalone: boolean;
+}
+
+type NavigatorWithStandalone = Navigator & { standalone?: boolean };
+
+function getInstallInfo(): InstallInfo {
+  if (typeof window === 'undefined') {
+    return { isIOS: false, isStandalone: false };
+  }
+
+  const navigatorWithStandalone = window.navigator as NavigatorWithStandalone;
+  const userAgent = navigatorWithStandalone.userAgent || '';
+  const platform = navigatorWithStandalone.platform || '';
+  const isTouchMac = platform === 'MacIntel' && navigatorWithStandalone.maxTouchPoints > 1;
+
+  return {
+    isIOS: /iPad|iPhone|iPod/.test(userAgent) || isTouchMac,
+    isStandalone:
+      window.matchMedia('(display-mode: standalone)').matches ||
+      navigatorWithStandalone.standalone === true,
+  };
+}
+
 export default function HomeView({
   user,
   token,
@@ -58,6 +83,8 @@ export default function HomeView({
   const [inputValue, setInputValue] = useState(() => initialInput ?? '');
   const [error, setError] = useState('');
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installInfo, setInstallInfo] = useState(getInstallInfo);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
 
   useEffect(() => {
     if (!initialInput) return;
@@ -67,21 +94,32 @@ export default function HomeView({
   }, [initialInput]);
 
   useEffect(() => {
+    const refreshInstallInfo = () => {
+      setInstallInfo(getInstallInfo());
+    };
+
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as BeforeInstallPromptEvent);
+      refreshInstallInfo();
     };
 
     const handleAppInstalled = () => {
       setInstallPrompt(null);
+      setShowInstallGuide(false);
+      refreshInstallInfo();
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
 
+    const displayModeQuery = window.matchMedia('(display-mode: standalone)');
+    displayModeQuery.addEventListener('change', refreshInstallInfo);
+
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      displayModeQuery.removeEventListener('change', refreshInstallInfo);
     };
   }, []);
 
@@ -129,13 +167,24 @@ export default function HomeView({
   };
 
   const handleInstallClick = async () => {
-    if (!installPrompt) return;
+    if (!installPrompt) {
+      setShowInstallGuide(true);
+      return;
+    }
 
     const promptEvent = installPrompt;
     setInstallPrompt(null);
+    setShowInstallGuide(false);
     await promptEvent.prompt();
     await promptEvent.userChoice.catch(() => undefined);
+    setInstallInfo(getInstallInfo());
   };
+
+  const installGuideMessage = installInfo.isStandalone
+    ? 'Ứng dụng đang chạy ở chế độ đã cài. Nếu muốn cài lại hoặc quản lý ứng dụng, dùng menu của trình duyệt hoặc màn hình ứng dụng của hệ điều hành.'
+    : installInfo.isIOS
+      ? 'Trên iPhone/iPad, mở Safari Share, chọn Add to Home Screen, bật Open as Web App rồi Add. Nếu Drive không hiện Nimbus trong Share sheet, dùng Sao chép đường liên kết và dán vào ô bên dưới.'
+      : 'Nếu hộp cài đặt chưa hiện, hãy dùng Chrome hoặc Edge qua HTTPS rồi chọn Install app/Cài đặt ứng dụng trong menu trình duyệt. Trên Android, sau khi cài PWA, Nimbus có thể xuất hiện trong Share sheet.';
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -165,35 +214,16 @@ export default function HomeView({
               <FolderOpen className="size-4" />
               Drive
             </a>
-            <a
-              href="/privacy.html"
-              className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              <ShieldCheck className="size-4" />
-              Quyền riêng tư
-            </a>
-            <a
-              href="/support.html"
-              className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              <HelpCircle className="size-4" />
-              Hỗ trợ
-            </a>
-          </nav>
-
-          {installPrompt ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
+            <span
               onClick={handleInstallClick}
-              className="ml-auto h-10 px-3 md:ml-0"
+              className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 cursor-pointer"
               title="Cài ứng dụng"
             >
-              <Download />
-              <span className="hidden lg:inline">Cài ứng dụng</span>
-            </Button>
-          ) : null}
+              <Download className="size-4" />
+              <span className="hidden sm:inline">Cài ứng dụng</span>
+              <span className="sm:hidden">Cài</span>
+            </span>
+          </nav>
 
           {isAuthenticated ? (
             <div className="flex max-w-[48vw] items-center gap-1 rounded-lg border bg-card/80 p-1 shadow-sm sm:max-w-none sm:gap-2">
@@ -256,6 +286,24 @@ export default function HomeView({
             >
               <CircleAlert className="mt-0.5 size-4 shrink-0" />
               <span>{authError}</span>
+            </div>
+          ) : null}
+
+          {showInstallGuide ? (
+            <div
+              role="status"
+              className="mt-5 flex max-w-2xl flex-col gap-3 rounded-lg border border-primary/35 bg-primary/10 px-4 py-3 text-sm leading-6 text-foreground sm:flex-row sm:items-start sm:justify-between"
+            >
+              <p className="text-muted-foreground">{installGuideMessage}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowInstallGuide(false)}
+                className="shrink-0"
+              >
+                Đã hiểu
+              </Button>
             </div>
           ) : null}
 
