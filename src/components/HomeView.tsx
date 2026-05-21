@@ -361,7 +361,7 @@ export default function HomeView({
         )}
       </main>
 
-      <footer className="border-t bg-card/35">
+      <footer className="safe-area-bottom border-t bg-card/35">
         <div className="safe-area-x safe-area-bottom mx-auto grid max-w-7xl gap-6 py-8 text-sm text-muted-foreground lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div className="max-w-xl">
             <a

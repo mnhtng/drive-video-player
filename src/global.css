@@ -79,11 +79,11 @@
   }
 
   .safe-area-top {
-    padding-top: env(safe-area-inset-top);
+    padding-top: max(1rem, env(safe-area-inset-top));
   }
 
   .safe-area-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 }
 
@@ -104,14 +104,12 @@
     inset: -55%;
     z-index: -2;
     background:
-      conic-gradient(
-        from 0deg,
+      conic-gradient(from 0deg,
         transparent 0deg,
         color-mix(in oklch, var(--primary) 76%, white 8%) 64deg,
         color-mix(in oklch, var(--foreground) 36%, var(--primary)) 98deg,
         transparent 150deg,
-        transparent 360deg
-      );
+        transparent 360deg);
     opacity: 0.88;
     animation: header-logo-spin 2.6s linear infinite;
   }
@@ -141,6 +139,7 @@
   }
 
   @keyframes header-logo-float {
+
     0%,
     100% {
       transform: translateY(0) scale(1);
@@ -158,6 +157,7 @@
   }
 
   @keyframes header-logo-pop {
+
     0%,
     100% {
       transform: scale(1) rotate(0deg);
@@ -173,6 +173,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+
     .header-logo-mark,
     .header-logo-mark::before,
     .header-logo-icon {
