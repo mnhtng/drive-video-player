@@ -80,6 +80,16 @@ const REDIRECT_URI = readEnvString(import.meta.env.VITE_GOOGLE_REDIRECT_URI) || 
 const SCOPES = readEnvString(import.meta.env.VITE_GOOGLE_OAUTH_SCOPES) || DEFAULT_SCOPES;
 const TOKEN_PROXY_URL = readEnvString(import.meta.env.VITE_TOKEN_PROXY_URL) || '/api/token';
 
+export function createOAuthState(): string {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function isAuthConfigured(): boolean {
   return CLIENT_ID.length > 0;
 }
@@ -118,7 +128,7 @@ export function getAuthConfig(): TAuthConfig {
     storageKeyPrefix: STORAGE_KEY_PREFIX,
     // When refresh token expires, prompt user to re-login
     onRefreshTokenExpire: (event) => {
-      event.logIn();
+      event.logIn(createOAuthState());
     },
   };
 }

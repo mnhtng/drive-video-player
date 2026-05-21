@@ -5,6 +5,7 @@ import {
   registerServiceWorker,
   fetchUserInfo,
   canFetchUserInfo,
+  createOAuthState,
   getAuthConfigurationError,
   isAuthConfigured,
   type UserInfo,
@@ -106,7 +107,7 @@ export function useAuth() {
       sessionStorage.setItem(PENDING_LOCATION_KEY, locationToRestore);
     }
 
-    logIn();
+    logIn(createOAuthState());
   }, [authConfigured, logIn]);
 
   const handleLogout = useCallback(() => {
